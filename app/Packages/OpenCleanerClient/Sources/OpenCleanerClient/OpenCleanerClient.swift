@@ -1,5 +1,13 @@
 import Foundation
+import OSLog
 import Network
+import Darwin
+
+public enum OpenCleanerDefaults {
+    public static func defaultSocketPath() -> String {
+        "/tmp/opencleaner.\(getuid()).sock"
+    }
+}
 
 public enum Category: String, Codable, Sendable {
     case system
@@ -222,7 +230,7 @@ public struct SSEReconnectPolicy: Sendable {
         initialDelaySeconds: 0.25,
         maxDelaySeconds: 4.0,
         multiplier: 1.6,
-        jitterFraction: 0.2,
+        jitterFraction: 0,
         maxAttempts: 8,
         reconnectOnCompletion: true
     )
@@ -231,7 +239,7 @@ public struct SSEReconnectPolicy: Sendable {
         initialDelaySeconds: 0.25,
         maxDelaySeconds: 4.0,
         multiplier: 1.6,
-        jitterFraction: 0.2,
+        jitterFraction: 0,
         maxAttempts: nil,
         reconnectOnCompletion: true
     )
@@ -244,6 +252,8 @@ public struct SSEReconnectPolicy: Sendable {
         return max(0, base + jitter)
     }
 }
+
+private let sseLogger = Logger(subsystem: "OpenCleanerClient", category: "sse")
 
 public extension OpenCleanerClientProtocol {
     /// Wraps `progressStream()` with a retry loop to tolerate daemon restarts / disconnects.
@@ -258,26 +268,44 @@ public extension OpenCleanerClientProtocol {
                 var lastError: Error?
 
                 while !Task.isCancelled {
+                    var didReceiveEvent = false
+
                     do {
+                        if attempt == 0 {
+                            sseLogger.debug("SSE connecting")
+                        } else {
+                            sseLogger.debug("SSE reconnect attempt \(attempt + 1)")
+                        }
+
                         for try await evt in progressStream() {
+                            if !didReceiveEvent {
+                                sseLogger.debug("SSE connected")
+                                didReceiveEvent = true
+                            }
                             attempt = 0
                             lastError = nil
                             continuation.yield(evt)
                         }
 
                         if !policy.reconnectOnCompletion {
+                            sseLogger.debug("SSE completed; not reconnecting")
                             continuation.finish()
                             return
                         }
+
+                        sseLogger.debug("SSE completed; reconnecting")
                     } catch is CancellationError {
+                        sseLogger.debug("SSE cancelled")
                         continuation.finish()
                         return
                     } catch {
                         lastError = error
+                        sseLogger.error("SSE error: \(String(describing: error), privacy: .public)")
                     }
 
                     attempt += 1
                     if let maxAttempts = policy.maxAttempts, attempt > maxAttempts {
+                        sseLogger.error("SSE giving up after \(attempt) attempts")
                         if let lastError {
                             continuation.finish(throwing: lastError)
                         } else {
@@ -292,6 +320,8 @@ public extension OpenCleanerClientProtocol {
 
                     let maxDelaySeconds = Double(UInt64.max) / 1_000_000_000
                     let clamped = min(effectiveDelay, maxDelaySeconds)
+                    sseLogger.debug("SSE retry in \(clamped, privacy: .public)s")
+
                     let nanos = UInt64(clamped * 1_000_000_000)
                     try? await Task.sleep(nanoseconds: nanos)
                 }
@@ -313,7 +343,7 @@ public struct OpenCleanerCLIClient: OpenCleanerClientProtocol {
     public var socketPath: String
     public var executablePathHint: String
 
-    public init(socketPath: String = "/tmp/opencleaner.sock", executablePathHint: String = "Build Go CLI and ensure 'opencleaner' is on PATH") {
+    public init(socketPath: String = OpenCleanerDefaults.defaultSocketPath(), executablePathHint: String = "Build Go CLI and ensure 'opencleaner' is on PATH") {
         self.socketPath = socketPath
         self.executablePathHint = executablePathHint
     }
@@ -427,7 +457,7 @@ public struct OpenCleanerCLIClient: OpenCleanerClientProtocol {
 public struct OpenCleanerDaemonClient: OpenCleanerClientProtocol {
     public var socketPath: String
 
-    public init(socketPath: String = "/tmp/opencleaner.sock") {
+    public init(socketPath: String = OpenCleanerDefaults.defaultSocketPath()) {
         self.socketPath = socketPath
     }
 
