@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OpenCleaner — Menu Bar Popover</title>
+  <style>
+    :root { --bg:#f5f5f7; --panel:#ffffff; --line:#d1d1d6; --text:#111; --muted:#666; --accent:#0a84ff; --radius:12px; }
+    body { margin:0; padding:24px; background:var(--bg);
+           font-family:-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; color:var(--text); }
+    .popover { width: 340px; border:1px solid var(--line); border-radius:14px; overflow:hidden; background:var(--panel); }
+    .header { padding:12px 12px 10px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:center; }
+    .title { font-weight:650; }
+    .pill { font-size:12px; padding:3px 8px; border-radius:999px; border:1px solid var(--line); background:#f7f7f7; }
+    .section { padding:12px; border-bottom:1px solid var(--line); }
+    .row { display:flex; justify-content:space-between; align-items:center; margin:6px 0; }
+    .muted { color:var(--muted); }
+    .btnrow { display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-top:10px; }
+    button { border:1px solid var(--line); background:#f7f7f7; padding:8px 10px; border-radius:10px; font-weight:600; text-align:center; }
+    .primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+    .menu { padding:8px 0; }
+    .menu a { display:flex; justify-content:space-between; padding:8px 12px; text-decoration:none; color:inherit; }
+    .menu a:hover { background:#f2f2f7; }
+    .kbd { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size:12px; color:#555; }
+    .note { padding:10px 12px; font-size:12px; color:#777; background:#fafafa; }
+  </style>
+</head>
+<body>
+  <div class="popover" role="dialog" aria-label="Menu bar popover">
+    <div class="header">
+      <div class="title">OpenCleaner</div>
+      <div class="pill">Daemon: Online</div>
+    </div>
+
+    <div class="section">
+      <div class="row"><div class="muted">Reclaimable</div><div style="font-weight:700;">23.6 GB</div></div>
+      <div class="row"><div class="muted">Last scan</div><div>2 minutes ago</div></div>
+      <div class="row"><div class="muted">Permission</div><div>Full Disk Access ✓</div></div>
+
+      <div class="btnrow">
+        <button class="primary">Scan Now <span class="kbd">⌘S</span></button>
+        <button>Open Full View <span class="kbd">⌘O</span></button>
+      </div>
+    </div>
+
+    <div class="menu" aria-label="Quick actions">
+      <a href="#"><span>Preview & Clean…</span><span class="kbd">⌘⌫</span></a>
+      <a href="#"><span>Settings…</span><span class="kbd">⌘,</span></a>
+      <a href="#"><span>View Audit Log</span><span class="kbd">⌘L</span></a>
+      <a href="#"><span>Quit</span><span class="kbd">⌘Q</span></a>
+    </div>
+
+    <div class="note">
+      Annotation: Popover is fast-access only; deep work happens in Full View.
+      If permission missing or daemon offline, replace header pill + disable actions.
+    </div>
+  </div>
+</body>
+</html>

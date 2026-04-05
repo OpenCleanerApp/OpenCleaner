@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OpenCleaner — Settings</title>
+  <style>
+    :root { --bg:#f5f5f7; --panel:#fff; --line:#d1d1d6; --text:#111; --muted:#666; --accent:#0a84ff; --radius:12px; }
+    body { margin:0; background:var(--bg); color:var(--text);
+           font-family:-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; }
+    .window { width: 900px; margin: 28px auto; border:1px solid var(--line); border-radius:14px; overflow:hidden; background:var(--panel); }
+    .titlebar { padding:10px 14px; border-bottom:1px solid var(--line); background:linear-gradient(#fafafa,#f2f2f2); display:flex; justify-content:space-between; align-items:center; }
+    .content { padding:16px; display:grid; grid-template-columns: 260px 1fr; gap:14px; }
+    .sidebar { border:1px solid var(--line); border-radius:12px; padding:10px; background:#fafafa; }
+    .sidebar a { display:block; padding:8px 10px; border-radius:10px; text-decoration:none; color:inherit; }
+    .sidebar a.active { background:#e9eefc; border:1px solid #cfe0ff; }
+    .group { border:1px solid var(--line); border-radius:12px; padding:14px; }
+    .row { display:flex; justify-content:space-between; align-items:center; margin:10px 0; }
+    .muted { color:var(--muted); line-height:1.4; }
+    .kbd { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size:12px; padding:2px 6px; border:1px solid var(--line); border-radius:6px; background:#fafafa; }
+    .btn { border:1px solid var(--line); background:#f7f7f7; padding:8px 12px; border-radius:10px; font-weight:650; }
+  </style>
+</head>
+<body>
+  <div class="window" role="application" aria-label="Settings window">
+    <div class="titlebar">
+      <div style="font-weight:800;">Settings</div>
+      <div class="muted">OpenCleaner</div>
+    </div>
+
+    <div class="content">
+      <aside class="sidebar" aria-label="Settings sections">
+        <a class="active" href="#">General</a>
+        <a href="#">Cleaning</a>
+        <a href="#">Exclusions</a>
+        <a href="#">Shortcuts</a>
+        <a href="#">About</a>
+      </aside>
+
+      <main style="display:grid; gap:12px;">
+        <div class="group">
+          <div style="font-weight:800;">General</div>
+          <div class="row">
+            <div>
+              <div style="font-weight:650;">Launch at login</div>
+              <div class="muted">Keep OpenCleaner available in the menu bar.</div>
+            </div>
+            <input type="checkbox" checked />
+          </div>
+          <div class="row">
+            <div>
+              <div style="font-weight:650;">Show main window on launch</div>
+              <div class="muted">Otherwise start in menu bar only.</div>
+            </div>
+            <input type="checkbox" />
+          </div>
+        </div>
+
+        <div class="group">
+          <div style="font-weight:800;">Cleaning</div>
+          <div class="row">
+            <div>
+              <div style="font-weight:650;">Default strategy</div>
+              <div class="muted">Recommended: Move to Trash (undo via Finder).</div>
+            </div>
+            <select>
+              <option>Move to Trash (default)</option>
+              <option>Hard delete (advanced / CLI only)</option>
+            </select>
+          </div>
+          <div class="row">
+            <div>
+              <div style="font-weight:650;">Require preview before cleaning</div>
+              <div class="muted">Always show a confirmation sheet.</div>
+            </div>
+            <input type="checkbox" checked />
+          </div>
+        </div>
+
+        <div class="group">
+          <div style="font-weight:800;">Shortcuts (reference)</div>
+          <div class="muted" style="margin-top:6px;">
+            <div><span class="kbd">⌘S</span> Scan · <span class="kbd">⌘⌫</span> Clean · <span class="kbd">Space</span> Toggle · <span class="kbd">⌘,</span> Settings</div>
+          </div>
+          <div style="margin-top:10px;">
+            <button class="btn">Reset to defaults</button>
+          </div>
+          <div class="muted" style="margin-top:8px; font-size:12px;">
+            Annotation: Production app can expose configurable shortcuts later; start with fixed PRD set.
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+</body>
+</html>

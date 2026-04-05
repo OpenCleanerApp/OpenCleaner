@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OpenCleaner — Category Detail</title>
+  <style>
+    :root { --bg:#f5f5f7; --panel:#fff; --line:#d1d1d6; --text:#111; --muted:#666; --accent:#0a84ff; --radius:12px; }
+    body { margin:0; background:var(--bg); color:var(--text);
+           font-family:-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; }
+    .window { width: 980px; margin: 28px auto; border:1px solid var(--line); border-radius:14px; overflow:hidden; background:var(--panel); }
+    .titlebar { padding:10px 14px; border-bottom:1px solid var(--line); background:linear-gradient(#fafafa,#f2f2f2); display:flex; justify-content:space-between; align-items:center; }
+    .toolbar { padding:10px 14px; border-bottom:1px solid var(--line); display:flex; gap:10px; align-items:center; }
+    .btn { border:1px solid var(--line); background:#f7f7f7; padding:8px 12px; border-radius:10px; font-weight:650; }
+    .btn.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+    .content { padding:16px; display:grid; grid-template-columns: 1fr; gap:12px; }
+    .group { border:1px solid var(--line); border-radius:var(--radius); padding:14px; }
+    .search { width: 320px; border:1px solid var(--line); padding:8px 10px; border-radius:10px; background:#fafafa; }
+    .list { border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+    .row { display:grid; grid-template-columns: 34px 1fr 120px; gap:10px; align-items:center; padding:10px 12px; border-bottom:1px solid #eee; }
+    .row:last-child{ border-bottom:none; }
+    .path { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .muted { color:var(--muted); }
+    .right { text-align:right; font-variant-numeric: tabular-nums; }
+    .footer { display:flex; justify-content:space-between; align-items:center; margin-top:10px; }
+    .kbd { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size:12px; padding:2px 6px; border:1px solid var(--line); border-radius:6px; background:#fafafa; }
+  </style>
+</head>
+<body>
+  <div class="window" role="application">
+    <div class="titlebar">
+      <div style="font-weight:700;">OpenCleaner</div>
+      <div class="muted">Category: Xcode DerivedData</div>
+    </div>
+
+    <div class="toolbar" role="toolbar">
+      <button class="btn">Back to Results</button>
+      <input class="search" placeholder="Search paths… (⌘F)" />
+      <button class="btn">Select All <span class="kbd">⌘A</span></button>
+      <button class="btn">Deselect</button>
+      <div style="margin-left:auto;" class="muted">Space toggles · Right-click for Copy Path</div>
+    </div>
+
+    <div class="content">
+      <div class="group">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">
+          <div>
+            <div style="font-weight:900;">Xcode DerivedData</div>
+            <div class="muted">Moderate · Deleting may increase next build time</div>
+          </div>
+          <div class="right">
+            <div class="muted" style="font-size:12px;">Category size</div>
+            <div style="font-weight:900; font-size:18px;">11.3 GB</div>
+          </div>
+        </div>
+
+        <div style="margin-top:12px;" class="list" aria-label="Items list">
+          <div class="row">
+            <input type="checkbox" checked />
+            <div>
+              <div class="path">~/Library/Developer/Xcode/DerivedData/AppA-abc123/</div>
+              <div class="muted" style="font-size:12px;">Items: 4,281</div>
+            </div>
+            <div class="right"><b>3.2 GB</b></div>
+          </div>
+          <div class="row">
+            <input type="checkbox" checked />
+            <div>
+              <div class="path">~/Library/Developer/Xcode/DerivedData/AppB-def456/</div>
+              <div class="muted" style="font-size:12px;">Items: 2,104</div>
+            </div>
+            <div class="right"><b>2.7 GB</b></div>
+          </div>
+          <div class="row">
+            <input type="checkbox" />
+            <div>
+              <div class="path">~/Library/Developer/Xcode/DerivedData/Experimental-zzz999/</div>
+              <div class="muted" style="font-size:12px;">Recently used</div>
+            </div>
+            <div class="right"><b>1.1 GB</b></div>
+          </div>
+        </div>
+
+        <div class="footer">
+          <div class="muted">Selected in this category: <b>5.9 GB</b></div>
+          <button class="btn primary">Preview &amp; Clean…</button>
+        </div>
+
+        <div class="muted" style="margin-top:10px; font-size:12px;">
+          Annotation: This view supports granular selection and reveals safety notes prominently.
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

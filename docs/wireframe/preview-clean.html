@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OpenCleaner — Preview & Clean (Sheet)</title>
+  <style>
+    :root { --bg:#f5f5f7; --panel:#fff; --line:#d1d1d6; --text:#111; --muted:#666;
+            --accent:#0a84ff; --danger:#ff3b30; --radius:12px; }
+    body { margin:0; background:rgba(0,0,0,.15); font-family:-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; color:var(--text); }
+    .sheet { width: 720px; margin: 60px auto; background:var(--panel); border:1px solid var(--line); border-radius:14px; overflow:hidden; }
+    .header { padding:14px 16px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:center; background:linear-gradient(#fafafa,#f2f2f2); }
+    .content { padding:16px; display:grid; gap:12px; }
+    .group { border:1px solid var(--line); border-radius:var(--radius); padding:14px; background:#fff; }
+    .muted { color:var(--muted); line-height:1.5; }
+    .warn { border:1px solid #ffc1bd; background:#fff0ef; border-radius:12px; padding:10px 12px; }
+    .path { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size:12px; padding:6px 8px;
+            border:1px solid var(--line); border-radius:10px; background:#fafafa; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .actions { display:flex; justify-content:flex-end; gap:10px; padding:12px 16px; border-top:1px solid var(--line); background:#fafafa; }
+    .btn { border:1px solid var(--line); background:#f7f7f7; padding:8px 12px; border-radius:10px; font-weight:650; }
+    .btn.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+    .btn.destructive { background:var(--danger); border-color:var(--danger); color:#fff; }
+  </style>
+</head>
+<body>
+  <div class="sheet" role="dialog" aria-label="Preview and clean sheet">
+    <div class="header">
+      <div style="font-weight:800;">Preview &amp; Clean</div>
+      <div class="muted">Trash-based (default)</div>
+    </div>
+
+    <div class="content">
+      <div class="group">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+          <div>
+            <div class="muted">Selected</div>
+            <div style="font-weight:900; font-size:22px;">23.6 GB</div>
+            <div class="muted">847 items will be moved to Trash</div>
+          </div>
+          <div style="text-align:right;">
+            <div class="muted">Audit log</div>
+            <div class="path">~/.opencleaner/logs/audit.log</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="warn">
+        <div style="font-weight:800;">Includes risky selections</div>
+        <div class="muted">Some items may affect developer tools (e.g. Docker images). Review before continuing.</div>
+      </div>
+
+      <div class="group">
+        <div style="font-weight:800; margin-bottom:8px;">Sample of items</div>
+        <div class="path">~/Library/Caches/com.apple.dt.Xcode/…</div>
+        <div style="height:6px;"></div>
+        <div class="path">~/Library/Developer/Xcode/DerivedData/…</div>
+        <div style="height:6px;"></div>
+        <div class="path">/var/lib/docker/overlay2/…</div>
+        <div class="muted" style="margin-top:8px; font-size:12px;">Annotation: Provide “Show all…” to open full list in the main window.</div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="btn">Cancel</button>
+      <button class="btn destructive">Move to Trash (23.6 GB)</button>
+    </div>
+  </div>
+</body>
+</html>

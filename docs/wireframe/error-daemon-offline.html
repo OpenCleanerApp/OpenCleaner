@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OpenCleaner — Error (Daemon Offline)</title>
+  <style>
+    :root { --bg:#f5f5f7; --panel:#fff; --line:#d1d1d6; --text:#111; --muted:#666; --danger:#ff3b30; --radius:12px; }
+    body { margin:0; background:var(--bg); color:var(--text);
+           font-family:-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; }
+    .window { width: 720px; margin: 40px auto; border:1px solid var(--line); border-radius:14px; overflow:hidden; background:var(--panel); }
+    .titlebar { padding:10px 14px; border-bottom:1px solid var(--line); background:linear-gradient(#fafafa,#f2f2f2); display:flex; justify-content:space-between; align-items:center; }
+    .content { padding:16px; display:grid; gap:12px; }
+    .callout { border:1px solid #ffc1bd; background:#fff0ef; border-radius:12px; padding:12px 12px; }
+    .muted { color:var(--muted); line-height:1.5; }
+    .btnrow { display:flex; gap:10px; justify-content:flex-end; }
+    .btn { border:1px solid var(--line); background:#f7f7f7; padding:8px 12px; border-radius:10px; font-weight:650; }
+    .btn.primary { background:var(--danger); border-color:var(--danger); color:#fff; }
+    .diag { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size:12px; border:1px solid var(--line);
+            border-radius:12px; padding:10px; background:#fafafa; color:#333; }
+  </style>
+</head>
+<body>
+  <div class="window" role="application" aria-label="Daemon offline error">
+    <div class="titlebar">
+      <div style="font-weight:800;">OpenCleaner</div>
+      <div class="muted">Daemon offline</div>
+    </div>
+
+    <div class="content">
+      <div class="callout">
+        <div style="font-weight:900;">Can’t connect to cleaning engine</div>
+        <div class="muted">OpenCleaner can’t reach the daemon right now, so scanning and cleaning are unavailable.</div>
+      </div>
+
+      <div>
+        <div style="font-weight:800; margin-bottom:6px;">What you can do</div>
+        <ul class="muted" style="margin:0; padding-left:18px;">
+          <li>Retry connection</li>
+          <li>Open Full View for diagnostics</li>
+          <li>Copy diagnostics for an issue report</li>
+        </ul>
+      </div>
+
+      <div class="diag" aria-label="Diagnostics snippet">
+        status: offline
+        socket: /tmp/opencleaner.sock (not found)
+        last_error: connection refused
+      </div>
+
+      <div class="btnrow">
+        <button class="btn">Copy Diagnostics</button>
+        <button class="btn">Open Full View</button>
+        <button class="btn primary">Retry</button>
+      </div>
+
+      <div class="muted" style="font-size:12px;">
+        Annotation: This state must be reachable both from menu bar popover and main window.
+      </div>
+    </div>
+  </div>
+</body>
+</html>

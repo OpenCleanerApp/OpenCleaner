@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OpenCleaner — Scanning</title>
+  <style>
+    :root { --bg:#f5f5f7; --panel:#fff; --line:#d1d1d6; --text:#111; --muted:#666; --accent:#0a84ff; --radius:12px; }
+    body { margin:0; background:var(--bg); color:var(--text);
+           font-family:-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; }
+    .window { width: 980px; margin: 28px auto; border:1px solid var(--line); border-radius:14px; overflow:hidden; background:var(--panel); }
+    .titlebar { padding:10px 14px; border-bottom:1px solid var(--line); background:linear-gradient(#fafafa,#f2f2f2); display:flex; justify-content:space-between; align-items:center; }
+    .content { padding:16px; display:grid; gap:12px; }
+    .group { border:1px solid var(--line); border-radius:var(--radius); padding:14px; }
+    .bar { height:10px; border-radius:999px; border:1px solid var(--line); background:#f2f2f7; overflow:hidden; }
+    .bar > div { height:100%; width:65%; background:var(--accent); }
+    .row { display:flex; justify-content:space-between; align-items:center; margin-top:8px; }
+    .muted { color:var(--muted); }
+    .path { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size:12px; color:#333;
+            padding:6px 8px; border:1px solid var(--line); border-radius:10px; background:#fafafa; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .btn { border:1px solid var(--line); background:#f7f7f7; padding:8px 12px; border-radius:10px; font-weight:650; }
+  </style>
+</head>
+<body>
+  <div class="window" role="application" aria-label="Scanning window">
+    <div class="titlebar">
+      <div style="font-weight:700;">OpenCleaner</div>
+      <div class="muted">Scanning…</div>
+    </div>
+
+    <div class="content">
+      <div class="group">
+        <div style="font-weight:700;">Scanning</div>
+        <div class="muted" style="margin-top:6px;">Streaming results as they’re discovered.</div>
+
+        <div class="bar" aria-label="Scan progress"><div></div></div>
+
+        <div class="row">
+          <div class="muted">Progress</div>
+          <div style="font-weight:800;">65%</div>
+        </div>
+
+        <div style="margin-top:10px;" class="muted">Scanning path</div>
+        <div class="path">~/Library/Developer/Xcode/DerivedData/…</div>
+
+        <div class="row">
+          <div class="muted">Found so far</div>
+          <div style="font-weight:800;">12.4 GB</div>
+        </div>
+
+        <div class="row" style="margin-top:12px;">
+          <button class="btn">Cancel <span style="font-family:ui-monospace;">⌘.</span></button>
+          <div class="muted">Tip: you can switch to Results as categories appear.</div>
+        </div>
+      </div>
+
+      <div class="group">
+        <div style="font-weight:700; margin-bottom:6px;">Live categories (partial)</div>
+        <div class="muted">System Cache — 4.2 GB</div>
+        <div class="muted">Xcode DerivedData — 11.3 GB</div>
+        <div class="muted">Docker Images — 8.1 GB</div>
+        <div class="muted" style="margin-top:8px;">Annotation: partial results should be usable within ~3s (PRD).</div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

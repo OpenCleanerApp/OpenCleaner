@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OpenCleaner — Onboarding (Full Disk Access)</title>
+  <style>
+    :root { --bg:#f5f5f7; --panel:#ffffff; --line:#d1d1d6; --text:#111; --muted:#666;
+            --accent:#0a84ff; --danger:#ff3b30; --radius:12px; }
+    body { margin:0; font-family:-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+           background:var(--bg); color:var(--text); }
+    .window { width: 920px; margin: 28px auto; border:1px solid var(--line); border-radius:14px; overflow:hidden; background:var(--panel); }
+    .titlebar { padding:10px 14px; border-bottom:1px solid var(--line); background:linear-gradient(#fafafa,#f2f2f2); display:flex; justify-content:space-between; align-items:center; }
+    .titlebar .traffic { display:flex; gap:6px; }
+    .dot { width:12px; height:12px; border-radius:99px; border:1px solid rgba(0,0,0,.15); }
+    .dot.red{background:#ff5f57;} .dot.yellow{background:#febc2e;} .dot.green{background:#28c840;}
+    .content { padding:20px; display:grid; grid-template-columns: 1.2fr 0.8fr; gap:16px; }
+    .group { border:1px solid var(--line); border-radius:var(--radius); padding:16px; background:#fff; }
+    h1 { margin:0 0 8px; font-size:22px; font-weight:650; }
+    p { margin:8px 0; color:var(--muted); line-height:1.5; }
+    .actions { display:flex; gap:10px; margin-top:12px; }
+    .btn { border:1px solid var(--line); background:#f7f7f7; padding:8px 12px; border-radius:10px; font-weight:600; }
+    .btn.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+    .btn.destructive { background:var(--danger); border-color:var(--danger); color:#fff; }
+    .status { display:flex; align-items:flex-start; gap:10px; }
+    .badge { display:inline-block; padding:3px 8px; border-radius:999px; border:1px solid var(--line); color:#333; font-size:12px; background:#f7f7f7; }
+    .steps li { margin:10px 0; }
+    .kbd { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size:12px; padding:2px 6px; border:1px solid var(--line); border-radius:6px; background:#fafafa; }
+    .note { margin-top:12px; font-size:12px; color:#777; }
+  </style>
+</head>
+<body>
+  <div class="window" role="application" aria-label="OpenCleaner Onboarding Window">
+    <div class="titlebar">
+      <div class="traffic" aria-hidden="true">
+        <div class="dot red"></div><div class="dot yellow"></div><div class="dot green"></div>
+      </div>
+      <div style="font-weight:650;">OpenCleaner</div>
+      <div class="badge">First launch</div>
+    </div>
+
+    <div class="content">
+      <div class="group">
+        <h1>Full Disk Access required</h1>
+        <p>
+          OpenCleaner scans developer caches and build artifacts that live in protected locations
+          (e.g. <span class="kbd">~/Library</span>). Without Full Disk Access, results will be incomplete.
+        </p>
+
+        <div class="status">
+          <div class="badge" style="border-color:#ffcc00; background:#fff7db;">Status: Not granted</div>
+          <div>
+            <p style="margin:0;">
+              We’ll automatically detect when permission is granted. You can keep this window open.
+            </p>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button class="btn">Why is this needed?</button>
+          <button class="btn primary">Open System Settings…</button>
+        </div>
+
+        <div class="note">
+          Annotation: Primary button deep-links to System Settings → Privacy & Security → Full Disk Access.
+          Continue is disabled until permission is detected.
+        </div>
+      </div>
+
+      <div class="group">
+        <div style="font-weight:650; margin-bottom:8px;">Steps</div>
+        <ol class="steps" style="margin:0; padding-left:18px; color:#333;">
+          <li>In System Settings, enable <b>Full Disk Access</b> for <b>OpenCleaner</b>.</li>
+          <li>Return here. Status will update automatically.</li>
+          <li>OpenCleaner starts a first scan after access is granted.</li>
+        </ol>
+
+        <div class="actions" style="margin-top:14px;">
+          <button class="btn" disabled style="opacity:.5;">Continue</button>
+          <button class="btn">Quit</button>
+        </div>
+
+        <div class="note">
+          Keyboard: <span class="kbd">⌘ ,</span> Settings (disabled on first run),
+          <span class="kbd">⌘ .</span> Cancel.
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
