@@ -56,17 +56,22 @@ func main() {
 		doJSON(client, http.MethodPost, baseURL+"/api/v1/scan", map[string]any{}, &res)
 		print(jsonOut, res)
 	case "clean":
-		// Usage: clean <id1,id2,...> [--dry-run] [--unsafe] [--force] [--strategy=trash|delete] [--exclude=/path]
+		// Usage: clean <id1,id2,...> [--dry-run] [--execute --yes] [--unsafe] [--force] [--strategy=trash|delete] [--exclude=/path]
 		if len(args) < 2 {
 			fmt.Fprintln(os.Stderr, "clean requires comma-separated item ids")
 			os.Exit(2)
 		}
 		ids := strings.Split(args[1], ",")
-		req := types.CleanRequest{ItemIDs: ids, Strategy: types.CleanStrategyTrash}
+		req := types.CleanRequest{ItemIDs: ids, Strategy: types.CleanStrategyTrash, DryRun: true}
+		confirmed := false
 		for _, a := range args[2:] {
 			switch {
 			case a == "--dry-run":
 				req.DryRun = true
+			case a == "--execute" || a == "--no-dry-run":
+				req.DryRun = false
+			case a == "--yes" || a == "-y":
+				confirmed = true
 			case a == "--unsafe":
 				req.Unsafe = true
 			case a == "--force":
@@ -79,6 +84,10 @@ func main() {
 					req.ExcludePaths = append(req.ExcludePaths, p)
 				}
 			}
+		}
+		if !req.DryRun && !confirmed {
+			fmt.Fprintln(os.Stderr, "refusing to clean without confirmation; re-run with --execute --yes (or omit --execute for a dry-run)")
+			os.Exit(2)
 		}
 		var res types.CleanResult
 		doJSON(client, http.MethodPost, baseURL+"/api/v1/clean", req, &res)
@@ -143,7 +152,7 @@ func usage() {
 	fmt.Println("Usage:")
 	fmt.Printf("  opencleaner [--socket=%s] [--json] status\n", transport.DefaultSocketPath())
 	fmt.Println("  opencleaner [--socket=...] [--json] scan")
-	fmt.Println("  opencleaner [--socket=...] [--json] clean <id1,id2> [--dry-run] [--unsafe] [--force] [--strategy=trash|delete] [--exclude=/path]")
+	fmt.Println("  opencleaner [--socket=...] [--json] clean <id1,id2> [--dry-run] [--execute --yes] [--unsafe] [--force] [--strategy=trash|delete] [--exclude=/path]")
 	fmt.Println("  opencleaner version")
 }
 

@@ -7,6 +7,7 @@ struct CleanSheetView: View {
 
     @State private var dryRun: Bool = true
     @State private var allowRisky: Bool = false
+    @State private var showConfirmClean: Bool = false
 
     private func isExcluded(_ path: String, excludedPaths: [String]) -> Bool {
         guard !excludedPaths.isEmpty else { return false }
@@ -97,8 +98,29 @@ struct CleanSheetView: View {
                     Spacer()
 
                     Button(dryRun ? "Run Dry-Run" : "Clean Now") {
-                        model.cleanSelected(dryRun: dryRun, unsafe: allowRisky)
-                        dismiss()
+                        if dryRun {
+                            model.cleanSelected(dryRun: true, unsafe: allowRisky)
+                            dismiss()
+                        } else {
+                            showConfirmClean = true
+                        }
+                    }
+                    .confirmationDialog(
+                        "Confirm Clean",
+                        isPresented: $showConfirmClean,
+                        titleVisibility: .visible
+                    ) {
+                        Button("Move to Trash", role: .destructive) {
+                            model.cleanSelected(dryRun: false, unsafe: allowRisky)
+                            dismiss()
+                        }
+                        Button("Cancel", role: .cancel) {}
+                    } message: {
+                        Text(
+                            containsRisky
+                                ? "Move \(actionable.count) items (\(formatBytes(totalSize))) to Trash? This selection includes risky items."
+                                : "Move \(actionable.count) items (\(formatBytes(totalSize))) to Trash?"
+                        )
                     }
                     .keyboardShortcut(.defaultAction)
                     .disabled(!model.isOnline || actionable.isEmpty || containsRisky && !allowRisky || model.activity != .idle)
