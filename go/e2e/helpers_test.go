@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -54,12 +55,29 @@ type cmdResult struct {
 
 func runCmd(t *testing.T, env map[string]string, bin string, args ...string) cmdResult {
 	t.Helper()
-	cmd := exec.Command(bin, args...)
+
+	timeout := 20 * time.Second
+	if dl, ok := t.Deadline(); ok {
+		remain := time.Until(dl) - 2*time.Second
+		if remain > 0 && remain < timeout {
+			timeout = remain
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Env = mergeEnv(env)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+
 	err := cmd.Run()
+	if ctx.Err() != nil {
+		t.Fatalf("command timed out: %s %v\nstdout=%s\nstderr=%s", bin, args, stdout.String(), stderr.String())
+	}
+
 	code := 0
 	if err != nil {
 		var ee *exec.ExitError
@@ -73,10 +91,22 @@ func runCmd(t *testing.T, env map[string]string, bin string, args ...string) cmd
 }
 
 func mergeEnv(extra map[string]string) []string {
-	out := append([]string{}, os.Environ()...)
+	m := map[string]string{}
+	for _, kv := range os.Environ() {
+		k, v, ok := strings.Cut(kv, "=")
+		if ok {
+			m[k] = v
+		}
+	}
 	for k, v := range extra {
+		m[k] = v
+	}
+
+	out := make([]string, 0, len(m))
+	for k, v := range m {
 		out = append(out, fmt.Sprintf("%s=%s", k, v))
 	}
+	sort.Strings(out)
 	return out
 }
 
@@ -115,14 +145,26 @@ func startDaemon(t *testing.T, daemonBin string, env map[string]string, socketPa
 
 	t.Cleanup(func() {
 		cancel()
-		_ = cmd.Wait()
+		done := make(chan error, 1)
+		go func() {
+			done <- cmd.Wait()
+		}()
+
+		select {
+		case <-time.After(3 * time.Second):
+			if cmd.Process != nil {
+				_ = cmd.Process.Kill()
+			}
+			<-done
+		case <-done:
+		}
 		_ = os.Remove(socketPath)
 	})
 }
 
 func shortSocketPath(t *testing.T) string {
 	t.Helper()
-	p := filepath.Join(os.TempDir(), fmt.Sprintf("opencleaner-e2e-%d-%d.sock", os.Getpid(), time.Now().UnixNano()))
+	p := filepath.Join("/tmp", fmt.Sprintf("opencleaner-e2e-%d-%d.sock", os.Getpid(), time.Now().UnixNano()))
 	t.Cleanup(func() {
 		_ = os.Remove(p)
 	})
