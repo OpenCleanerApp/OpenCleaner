@@ -7,97 +7,102 @@ struct MenuBarPopoverView: View {
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
 
+    private var statusColor: Color {
+        switch model.connectionState {
+        case .online:
+            return .green
+        case .offline:
+            return .red
+        case .unknown:
+            return .gray
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            header
+            DaemonStatusHeader(statusColor: statusColor, title: model.statusLine, subtitle: model.socketPath) {
+                Button {
+                    model.refreshStatus()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .help("Refresh")
+                .buttonStyle(.borderless)
+            }
 
             if case .offline(let message) = model.connectionState {
-                DaemonOfflineInlineView(socketPath: model.socketPath, message: message)
+                OCCard(title: "Daemon offline", systemImage: "bolt.slash.fill") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        PathRow(label: "Socket", path: model.socketPath, labelWidth: 52)
+                        Text(message)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(3)
+                            .textSelection(.enabled)
+                    }
+                }
             }
 
             if let evt = model.progressEvent, model.activity != .idle {
-                ProgressInlineView(event: evt)
+                OCCard(
+                    title: model.activity == .scanning ? "Scanning" : "Cleaning",
+                    systemImage: model.activity == .scanning ? "magnifyingglass" : "trash"
+                ) {
+                    ProgressInlineView(event: evt)
+                }
             }
 
             if let scan = model.lastScan {
-                ScanSummaryView(scan: scan)
+                OCCard(title: "Last scan", systemImage: "clock") {
+                    ScanSummaryView(scan: scan)
+                }
             }
 
             if let clean = model.lastCleanResult {
-                CleanSummaryView(clean: clean)
+                OCCard(
+                    title: clean.dryRun == true ? "Dry-run complete" : "Clean complete",
+                    systemImage: "checkmark.circle"
+                ) {
+                    CleanSummaryView(clean: clean)
+                }
             }
 
             if let err = model.lastError, !err.isEmpty {
-                Text(err)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .textSelection(.enabled)
+                OCBanner(title: "Error", message: err, systemImage: "xmark.octagon.fill", tint: .red)
             }
 
             Divider()
 
             HStack {
                 Button("Scan") { model.scan() }
+                    .buttonStyle(.bordered)
                     .disabled(!model.isOnline || model.activity != .idle)
 
-                Button("Preview & Clean") { model.showingCleanSheet = true }
-                    .disabled(!model.isOnline || model.selectedItemIDs.isEmpty || model.activity != .idle)
+                Button("Preview & Clean") {
+                    openWindow(id: "main")
+                    Task { @MainActor in
+                        model.showingCleanSheet = true
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!model.isOnline || model.selectedItemIDs.isEmpty || model.activity != .idle)
 
                 Spacer()
             }
 
             HStack {
                 Button("Open Full View") { openWindow(id: "main") }
-
                 Button("Settings") { openSettings() }
 
                 Spacer()
 
                 Button("Quit") { NSApp.terminate(nil) }
             }
+            .controlSize(.small)
         }
         .padding(12)
-        .frame(width: 380)
+        .frame(width: 360)
         .onAppear { model.refreshStatus() }
-        .sheet(isPresented: $model.showingCleanSheet) {
-            CleanSheetView()
-                .environmentObject(model)
-        }
-    }
-
-    private var header: some View {
-        HStack(spacing: 8) {
-            Circle()
-                .fill(model.isOnline ? Color.green : Color.red)
-                .frame(width: 8, height: 8)
-            Text(model.statusLine)
-                .font(.headline)
-            Spacer()
-            Button("Refresh") { model.refreshStatus() }
-        }
-    }
-}
-
-private struct DaemonOfflineInlineView: View {
-    let socketPath: String
-    let message: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Daemon offline")
-                .font(.subheadline)
-            Text("Socket: \(socketPath)")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .textSelection(.enabled)
-            Text(message)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-        }
-        .padding(10)
-        .background(.thinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 }
 
@@ -121,6 +126,7 @@ private struct ProgressInlineView: View {
                     Text("\(Int(p * 100))%")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .monospacedDigit()
                 }
             }
 
@@ -131,9 +137,10 @@ private struct ProgressInlineView: View {
 
             if let cur = event.current, !cur.isEmpty {
                 Text(cur)
-                    .font(.caption2)
+                    .font(.caption2.monospaced())
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                    .truncationMode(.middle)
             }
         }
     }
@@ -143,22 +150,17 @@ private struct ScanSummaryView: View {
     let scan: ScanResult
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("Last scan")
-                    .font(.subheadline)
-                Spacer()
                 Text("\(scan.items.count) items")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-            }
-            HStack {
-                Text("Total")
                 Spacer()
                 Text(formatBytes(scan.totalSize))
+                    .font(.caption)
                     .foregroundStyle(.secondary)
+                    .monospacedDigit()
             }
-            .font(.caption)
 
             HStack(spacing: 12) {
                 ForEach(openCleanerCategories, id: \.rawValue) { cat in
@@ -168,13 +170,11 @@ private struct ScanSummaryView: View {
                             .foregroundStyle(.secondary)
                         Text(formatBytes(scan.categorizedSize[cat] ?? 0))
                             .font(.caption)
+                            .monospacedDigit()
                     }
                 }
             }
         }
-        .padding(10)
-        .background(.thinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 }
 
@@ -182,30 +182,33 @@ private struct CleanSummaryView: View {
     let clean: CleanResult
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text(clean.dryRun == true ? "Dry-run complete" : "Clean complete")
-                    .font(.subheadline)
-                Spacer()
-                Text("\(clean.cleanedCount) items")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+        VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("Freed")
+                    .foregroundStyle(.secondary)
                 Spacer()
                 Text(formatBytes(clean.cleanedSize))
                     .foregroundStyle(.secondary)
+                    .monospacedDigit()
             }
             .font(.caption)
 
-            Text("Audit: \(clean.auditLogPath)")
-                .font(.caption2)
+            HStack {
+                Text("Items")
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text("\(clean.cleanedCount)")
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+            .font(.caption)
+
+            Text(clean.auditLogPath)
+                .font(.caption2.monospaced())
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
         }
-        .padding(10)
-        .background(.thinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 }

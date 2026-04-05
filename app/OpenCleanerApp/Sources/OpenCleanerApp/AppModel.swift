@@ -147,6 +147,11 @@ final class AppModel: ObservableObject {
         NSWorkspace.shared.open(URL(fileURLWithPath: p))
     }
 
+    func revealAuditLogInFinder() {
+        guard let p = lastCleanResult?.auditLogPath, !p.isEmpty else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: p)])
+    }
+
     func resetSocketPathToDefault() {
         socketPath = OpenCleanerDefaults.defaultSocketPath()
     }

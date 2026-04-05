@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import OpenCleanerClient
 import SwiftUI
@@ -33,9 +34,9 @@ extension OpenCleanerClient.SafetyLevel {
 
     var tint: Color {
         switch self {
-        case .safe: return .green
-        case .moderate: return .orange
-        case .risky: return .red
+        case .safe: return Color(nsColor: .systemGreen)
+        case .moderate: return Color(nsColor: .systemOrange)
+        case .risky: return Color(nsColor: .systemRed)
         }
     }
 }

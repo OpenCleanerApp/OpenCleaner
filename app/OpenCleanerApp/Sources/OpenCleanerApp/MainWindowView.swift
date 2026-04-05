@@ -1,3 +1,4 @@
+import AppKit
 import OpenCleanerClient
 import SwiftUI
 
@@ -53,17 +54,31 @@ struct MainWindowView: View {
             }
         }
         .toolbar {
-            ToolbarItemGroup {
-                Button("Refresh") { model.refreshStatus() }
-                    .keyboardShortcut("r", modifiers: [.command])
+            ToolbarItemGroup(placement: .automatic) {
+                Button {
+                    model.refreshStatus()
+                } label: {
+                    Label("Refresh", systemImage: "arrow.clockwise")
+                }
+                .keyboardShortcut("r", modifiers: [.command])
+            }
 
-                Button("Scan") { model.scan() }
-                    .keyboardShortcut("s", modifiers: [.command])
-                    .disabled(!model.isOnline || model.activity != .idle)
+            ToolbarItemGroup(placement: .primaryAction) {
+                Button {
+                    model.scan()
+                } label: {
+                    Label("Scan", systemImage: "magnifyingglass")
+                }
+                .keyboardShortcut("s", modifiers: [.command])
+                .disabled(!model.isOnline || model.activity != .idle)
 
-                Button("Preview & Clean") { model.showingCleanSheet = true }
-                    .keyboardShortcut(.return, modifiers: [.command])
-                    .disabled(!model.isOnline || model.selectedItemIDs.isEmpty || model.activity != .idle)
+                Button {
+                    model.showingCleanSheet = true
+                } label: {
+                    Label("Preview & Clean", systemImage: "trash")
+                }
+                .keyboardShortcut(.return, modifiers: [.command])
+                .disabled(!model.isOnline || model.selectedItemIDs.isEmpty || model.activity != .idle)
             }
         }
         .onAppear { model.refreshStatus() }
@@ -77,106 +92,123 @@ struct MainWindowView: View {
 private struct DashboardView: View {
     @EnvironmentObject var model: AppModel
 
+    private var statusColor: Color {
+        switch model.connectionState {
+        case .online:
+            return .green
+        case .offline:
+            return .red
+        case .unknown:
+            return .gray
+        }
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Circle()
-                    .fill(model.isOnline ? Color.green : Color.red)
-                    .frame(width: 10, height: 10)
-                Text(model.statusLine)
-                    .font(.headline)
-                Spacer()
-            }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                DaemonStatusHeader(statusColor: statusColor, title: model.statusLine, subtitle: model.socketPath)
 
-            if case .offline(let message) = model.connectionState {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Daemon offline")
-                        .font(.title3)
-                    Text("Socket: \(model.socketPath)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                    Text(message)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                if case .offline(let message) = model.connectionState {
+                    OCBanner(
+                        title: "Daemon offline",
+                        message: message,
+                        systemImage: "bolt.slash.fill",
+                        tint: .orange
+                    )
                 }
-                .padding(12)
-                .background(.thinMaterial)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-            }
 
-            if let scan = model.lastScan {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Last scan")
-                        .font(.title3)
+                if let scan = model.lastScan {
+                    OCCard(title: "Last scan", systemImage: "magnifyingglass") {
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack(alignment: .firstTextBaseline) {
+                                MetricView(title: "Total", value: formatBytes(scan.totalSize))
+                                Spacer()
+                                MetricView(title: "Items", value: "\(scan.items.count)")
+                            }
 
-                    HStack {
-                        VStack(alignment: .leading) {
-                            Text("Total")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Text(formatBytes(scan.totalSize))
-                                .font(.title2)
-                        }
+                            Divider()
 
-                        Spacer()
-
-                        VStack(alignment: .leading) {
-                            Text("Items")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Text("\(scan.items.count)")
-                                .font(.title2)
+                            HStack(spacing: 18) {
+                                ForEach(openCleanerCategories, id: \.rawValue) { cat in
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Label(cat.title, systemImage: cat.systemImageName)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                        Text(formatBytes(scan.categorizedSize[cat] ?? 0))
+                                            .font(.headline)
+                                            .monospacedDigit()
+                                    }
+                                }
+                            }
                         }
                     }
+                } else {
+                    ContentUnavailableView {
+                        Label("No scan results", systemImage: "magnifyingglass")
+                    } description: {
+                        Text("Run a scan to see results.")
+                    }
+                }
 
-                    HStack(spacing: 16) {
-                        ForEach(openCleanerCategories, id: \.rawValue) { cat in
-                            VStack(alignment: .leading, spacing: 2) {
-                                Label(cat.title, systemImage: cat.systemImageName)
-                                    .font(.caption)
+                if let evt = model.progressEvent, model.activity != .idle {
+                    OCCard(
+                        title: model.activity == .scanning ? "Scanning" : "Cleaning",
+                        systemImage: model.activity == .scanning ? "magnifyingglass" : "trash"
+                    ) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            if let p = evt.progress {
+                                ProgressView(value: p)
+                            } else {
+                                ProgressView()
+                            }
+
+                            if let msg = evt.message, !msg.isEmpty {
+                                Text(msg)
+                                    .font(.callout)
+                            }
+
+                            if let cur = evt.current, !cur.isEmpty {
+                                Text(cur)
+                                    .font(.caption.monospaced())
                                     .foregroundStyle(.secondary)
-                                Text(formatBytes(scan.categorizedSize[cat] ?? 0))
-                                    .font(.headline)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
                             }
                         }
                     }
                 }
-                .padding(12)
-                .background(.thinMaterial)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-            } else {
-                Text("Run a scan to see results.")
-                    .foregroundStyle(.secondary)
-            }
 
-            if let evt = model.progressEvent, model.activity != .idle {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(model.activity == .scanning ? "Scanning" : "Cleaning")
-                        .font(.headline)
-                    if let p = evt.progress {
-                        ProgressView(value: p)
-                    } else {
-                        ProgressView()
-                    }
-                    if let msg = evt.message, !msg.isEmpty {
-                        Text(msg)
-                            .font(.caption)
-                    }
-                }
-                .padding(12)
-                .background(.thinMaterial)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+                Spacer(minLength: 0)
             }
-
-            Spacer()
+            .padding(OCLayout.pagePadding)
         }
-        .padding(16)
+        .navigationTitle("Dashboard")
     }
 }
 
 private struct ResultsView: View {
     @EnvironmentObject var model: AppModel
+    @State private var query: String = ""
+    @State private var safetyFilter: SafetyFilter = .all
+
+    private enum SafetyFilter: String, CaseIterable, Identifiable {
+        case all = "All"
+        case safe = "Safe"
+        case risky = "Risky"
+
+        var id: String { rawValue }
+
+        func allows(_ item: ScanItem) -> Bool {
+            switch self {
+            case .all:
+                return true
+            case .safe:
+                return item.safetyLevel != .risky
+            case .risky:
+                return item.safetyLevel == .risky
+            }
+        }
+    }
 
     var body: some View {
         Group {
@@ -188,8 +220,12 @@ private struct ResultsView: View {
                 } description: {
                     Text("Run a scan to populate results.")
                 } actions: {
-                    Button("Scan") { model.scan() }
-                        .disabled(!model.isOnline || model.activity != .idle)
+                    Button {
+                        model.scan()
+                    } label: {
+                        Label("Scan", systemImage: "magnifyingglass")
+                    }
+                    .disabled(!model.isOnline || model.activity != .idle)
                 }
             }
         }
@@ -197,49 +233,88 @@ private struct ResultsView: View {
     }
 
     private func resultsBody(scan: ScanResult) -> some View {
-        let grouped = Dictionary(grouping: scan.items, by: { $0.category })
-        let selectedItems = scan.items.filter { model.selectedItemIDs.contains($0.id) }
+        let checkedItems = scan.items.filter { model.selectedItemIDs.contains($0.id) }
 
-        return VStack(spacing: 0) {
-            HStack {
-                Text("Selected: \(selectedItems.count) • \(formatBytes(sumSizes(selectedItems)))")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Button("Preview & Clean") { model.showingCleanSheet = true }
-                    .disabled(!model.isOnline || model.selectedItemIDs.isEmpty || model.activity != .idle)
-            }
-            .padding(12)
+        let queryFiltered = scan.items.filter {
+            query.isEmpty
+                || $0.name.localizedCaseInsensitiveContains(query)
+                || $0.path.localizedCaseInsensitiveContains(query)
+        }
 
-            Divider()
+        let filtered = queryFiltered.filter { safetyFilter.allows($0) }
+        let visibleIDs = Set(filtered.map(\.id))
+        let grouped = Dictionary(grouping: filtered, by: { $0.category })
 
-            HStack(spacing: 0) {
-                List(selection: $model.selectedItemIDs) {
+        return HStack(spacing: 0) {
+            VStack(spacing: 0) {
+                HStack {
+                    Picker("Filter", selection: $safetyFilter) {
+                        ForEach(SafetyFilter.allCases) { f in
+                            Text(f.rawValue)
+                                .tag(f)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .controlSize(.small)
+                    .frame(maxWidth: 260)
+
+                    Spacer(minLength: 0)
+
+                    Text("\(checkedItems.count) selected • \(formatBytes(sumSizes(checkedItems)))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+                .padding(12)
+
+                Divider()
+
+                List(selection: $model.focusedItemID) {
                     ForEach(openCleanerCategories, id: \.rawValue) { cat in
                         let items = (grouped[cat] ?? []).sorted(by: { $0.size > $1.size })
                         if !items.isEmpty {
                             Section(cat.title) {
                                 ForEach(items) { item in
-                                    ScanItemRow(item: item)
-                                        .tag(item.id)
-                                        .onTapGesture { model.focusedItemID = item.id }
+                                    ScanItemRow(
+                                        item: item,
+                                        isChecked: Binding(
+                                            get: { model.selectedItemIDs.contains(item.id) },
+                                            set: { checked in
+                                                if checked {
+                                                    model.selectedItemIDs.insert(item.id)
+                                                } else {
+                                                    model.selectedItemIDs.remove(item.id)
+                                                }
+                                            }
+                                        )
+                                    )
+                                    .tag(item.id)
                                 }
                             }
                         }
                     }
                 }
-                .frame(minWidth: 380)
-
-                Divider()
-
-                ResultDetailView(scan: scan)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .searchable(text: $query, placement: .toolbar)
             }
+            .frame(minWidth: 520)
+
+            Divider()
+
+            ResultDetailView(scan: scan)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .onChange(of: model.selectedItemIDs) { _, newValue in
-            if newValue.count == 1 {
+            if model.focusedItemID == nil, newValue.count == 1 {
                 model.focusedItemID = newValue.first
-            } else {
+            }
+        }
+        .onChange(of: query) { _, _ in
+            if let focused = model.focusedItemID, !visibleIDs.contains(focused) {
+                model.focusedItemID = nil
+            }
+        }
+        .onChange(of: safetyFilter) { _, _ in
+            if let focused = model.focusedItemID, !visibleIDs.contains(focused) {
                 model.focusedItemID = nil
             }
         }
@@ -248,38 +323,41 @@ private struct ResultsView: View {
 
 private struct ScanItemRow: View {
     let item: ScanItem
+    @Binding var isChecked: Bool
 
     var body: some View {
         HStack(spacing: 8) {
+            Toggle(isOn: $isChecked) {
+                EmptyView()
+            }
+            .toggleStyle(.checkbox)
+            .labelsHidden()
+            .controlSize(.small)
+            .accessibilityLabel(Text("Select \(item.name)"))
+            .accessibilityHint(Text("Adds or removes this item from the clean selection"))
+
             VStack(alignment: .leading, spacing: 2) {
-                HStack {
+                HStack(spacing: 8) {
                     Text(item.name)
+                        .lineLimit(1)
                     SafetyBadge(level: item.safetyLevel)
                 }
+
                 Text(item.path)
-                    .font(.caption)
+                    .font(.caption.monospaced())
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                    .truncationMode(.middle)
+                    .help(item.path)
             }
-            Spacer()
+
+            Spacer(minLength: 0)
+
             Text(formatBytes(item.size))
                 .font(.caption)
                 .foregroundStyle(.secondary)
+                .monospacedDigit()
         }
-    }
-}
-
-private struct SafetyBadge: View {
-    let level: SafetyLevel
-
-    var body: some View {
-        Text(level.title)
-            .font(.caption2)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(level.tint.opacity(0.18))
-            .foregroundStyle(level.tint)
-            .clipShape(Capsule())
     }
 }
 
@@ -291,7 +369,7 @@ private struct ResultDetailView: View {
         let selected = scan.items.filter { model.selectedItemIDs.contains($0.id) }
 
         if let focused = model.focusedItemID, let item = scan.items.first(where: { $0.id == focused }) {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 12) {
                 Text(item.name)
                     .font(.title2)
 
@@ -299,35 +377,46 @@ private struct ResultDetailView: View {
                     SafetyBadge(level: item.safetyLevel)
                     Text(formatBytes(item.size))
                         .foregroundStyle(.secondary)
+                        .monospacedDigit()
                 }
 
-                Text(item.path)
-                    .font(.callout)
-                    .textSelection(.enabled)
+                PathRow(label: "Path", path: item.path, labelWidth: 44)
 
                 if let note = item.safetyNote, !note.isEmpty {
                     Text(note)
                         .font(.callout)
                         .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
                 if let desc = item.description, !desc.isEmpty {
                     Text(desc)
                         .font(.callout)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
-                Spacer()
+                Spacer(minLength: 0)
             }
-            .padding(16)
+            .padding(OCLayout.pagePadding)
         } else if !selected.isEmpty {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("\(selected.count) items selected")
-                    .font(.title2)
-                Text("Total: \(formatBytes(sumSizes(selected)))")
-                    .foregroundStyle(.secondary)
-                Spacer()
+            VStack(alignment: .leading, spacing: 12) {
+                OCCard(title: "Selection", systemImage: "checkmark.circle") {
+                    HStack {
+                        MetricView(title: "Items", value: "\(selected.count)")
+                        Spacer()
+                        MetricView(title: "Total", value: formatBytes(sumSizes(selected)))
+                    }
+                }
+
+                ContentUnavailableView {
+                    Label("Select an item", systemImage: "cursorarrow.click")
+                } description: {
+                    Text("Pick a focused item to see details.")
+                }
+
+                Spacer(minLength: 0)
             }
-            .padding(16)
+            .padding(OCLayout.pagePadding)
         } else {
             ContentUnavailableView {
                 Label("Select an item", systemImage: "cursorarrow.click")
@@ -340,30 +429,67 @@ private struct AuditView: View {
     @EnvironmentObject var model: AppModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Audit Log")
-                .font(.title2)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                if let clean = model.lastCleanResult {
+                    OCCard(title: "Last clean", systemImage: "checkmark.circle") {
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack {
+                                MetricView(title: "Freed", value: formatBytes(clean.cleanedSize))
+                                Spacer()
+                                MetricView(title: "Items", value: "\(clean.cleanedCount)")
+                            }
 
-            if let clean = model.lastCleanResult {
-                Text(clean.auditLogPath)
-                    .font(.callout)
-                    .textSelection(.enabled)
+                            if clean.dryRun == true {
+                                Text("Dry-run")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
 
-                Button("Open Audit Log") { model.openAuditLog() }
+                    OCCard(title: "Audit log", systemImage: "doc.text") {
+                        VStack(alignment: .leading, spacing: 10) {
+                            PathRow(label: "Path", path: clean.auditLogPath, labelWidth: 44)
 
-                if let failed = clean.failedItems.first {
-                    Text("Some items failed (e.g. \(failed)).")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                            HStack {
+                                Button("Open") { model.openAuditLog() }
+                                Button("Reveal") { model.revealAuditLogInFinder() }
+                                Spacer()
+                            }
+                            .controlSize(.small)
+                        }
+                    }
+
+                    if !clean.failedItems.isEmpty {
+                        OCCard(title: "Failed items", systemImage: "exclamationmark.triangle.fill") {
+                            VStack(alignment: .leading, spacing: 6) {
+                                ForEach(clean.failedItems.prefix(8), id: \.self) { item in
+                                    Text(item)
+                                        .font(.caption)
+                                        .textSelection(.enabled)
+                                }
+
+                                if clean.failedItems.count > 8 {
+                                    Text("…and \(clean.failedItems.count - 8) more")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    ContentUnavailableView {
+                        Label("No audit log yet", systemImage: "doc.text.magnifyingglass")
+                    } description: {
+                        Text("Run a clean to generate an audit log.")
+                    }
                 }
-            } else {
-                Text("Run a clean to generate an audit log.")
-                    .foregroundStyle(.secondary)
-            }
 
-            Spacer()
+                Spacer(minLength: 0)
+            }
+            .padding(OCLayout.pagePadding)
         }
-        .padding(16)
         .navigationTitle("Audit")
     }
 }
