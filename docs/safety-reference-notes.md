@@ -29,3 +29,12 @@ PRD mandates referencing: https://github.com/0xAstroAlpha/clmm-clean-my-mac-cli
 - Symlink safety: deleting link never deletes target
 - TOCTOU regression: swap candidate for symlink just before delete; ensure target survives
 - Risk gating: risky categories require `--unsafe` (CLI)
+
+## Undo restore safety (Trash → original)
+- Undo restores **only** the last trash-based clean (single manifest).
+- Restore refuses to run if `$HOME` cannot be resolved.
+- Each entry must satisfy:
+  - `SrcPath` is within `$HOME` (no restoring outside the user home)
+  - `DstPath` is within the computed Trash directory (typically `$HOME/.Trash`)
+  - No *existing* ancestor directories in the restore path are symlinks (prevents symlink-escape)
+  - `SrcPath` is never overwritten (if it exists, the item is reported as failed)
