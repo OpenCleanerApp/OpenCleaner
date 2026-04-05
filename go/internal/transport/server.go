@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/opencleaner/opencleaner/internal/engine"
@@ -92,8 +94,18 @@ func (s *Server) handleProgressStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	debug := os.Getenv("OPENCLEANER_DEBUG") != "" || os.Getenv("OPENCLEANER_DEBUG_SSE") != ""
+	defer func() {
+		if debug {
+			log.Printf("sse: unsubscribe remote=%s subs=%d", r.RemoteAddr, s.broker.SubscriberCount())
+		}
+	}()
+
 	rc := http.NewResponseController(w)
 	ch := s.broker.Subscribe(r.Context())
+	if debug {
+		log.Printf("sse: subscribe remote=%s subs=%d", r.RemoteAddr, s.broker.SubscriberCount())
+	}
 	ping := time.NewTicker(20 * time.Second)
 	defer ping.Stop()
 
@@ -104,6 +116,9 @@ func (s *Server) handleProgressStream(w http.ResponseWriter, r *http.Request) {
 		case <-ping.C:
 			_ = rc.SetWriteDeadline(time.Now().Add(5 * time.Second))
 			if _, err := w.Write([]byte(": ping\n\n")); err != nil {
+				if debug {
+					log.Printf("sse: ping write failed remote=%s err=%v", r.RemoteAddr, err)
+				}
 				return
 			}
 			f.Flush()
@@ -111,7 +126,13 @@ func (s *Server) handleProgressStream(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			b, _ := json.Marshal(evt)
+			b, err := json.Marshal(evt)
+			if err != nil {
+				if debug {
+					log.Printf("sse: marshal failed remote=%s err=%v", r.RemoteAddr, err)
+				}
+				return
+			}
 
 			var buf bytes.Buffer
 			buf.Grow(len("data: ") + len(b) + 2)
@@ -121,6 +142,9 @@ func (s *Server) handleProgressStream(w http.ResponseWriter, r *http.Request) {
 
 			_ = rc.SetWriteDeadline(time.Now().Add(5 * time.Second))
 			if _, err := w.Write(buf.Bytes()); err != nil {
+				if debug {
+					log.Printf("sse: event write failed remote=%s err=%v", r.RemoteAddr, err)
+				}
 				return
 			}
 			f.Flush()

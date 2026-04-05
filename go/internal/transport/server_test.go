@@ -33,7 +33,7 @@ func (r *signalRecorder) Flush() {
 }
 
 func TestServer_StatusOK(t *testing.T) {
-	srv := NewServer(nil, stream.NewBroker(), "/tmp/opencleaner.sock", "test")
+	srv := NewServer(nil, stream.NewBroker(), DefaultSocketPath(), "test")
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/status", nil)
 
@@ -47,7 +47,7 @@ func TestServer_StatusOK(t *testing.T) {
 }
 
 func TestServer_ScanMethodNotAllowed(t *testing.T) {
-	srv := NewServer(nil, stream.NewBroker(), "/tmp/opencleaner.sock", "test")
+	srv := NewServer(nil, stream.NewBroker(), DefaultSocketPath(), "test")
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/scan", nil)
 
@@ -58,7 +58,7 @@ func TestServer_ScanMethodNotAllowed(t *testing.T) {
 }
 
 func TestServer_CleanRejectsInvalidJSON(t *testing.T) {
-	srv := NewServer(nil, stream.NewBroker(), "/tmp/opencleaner.sock", "test")
+	srv := NewServer(nil, stream.NewBroker(), DefaultSocketPath(), "test")
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/clean", strings.NewReader("not-json"))
 
@@ -69,7 +69,7 @@ func TestServer_CleanRejectsInvalidJSON(t *testing.T) {
 }
 
 func TestServer_CleanRejectsUnknownField(t *testing.T) {
-	srv := NewServer(nil, stream.NewBroker(), "/tmp/opencleaner.sock", "test")
+	srv := NewServer(nil, stream.NewBroker(), DefaultSocketPath(), "test")
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/clean", strings.NewReader(`{"item_ids":["a"],"strategy":"trash","unknown":1}`))
 
@@ -81,7 +81,7 @@ func TestServer_CleanRejectsUnknownField(t *testing.T) {
 
 func TestServer_ProgressStreamWritesData(t *testing.T) {
 	broker := stream.NewBroker()
-	srv := NewServer(nil, broker, "/tmp/opencleaner.sock", "test")
+	srv := NewServer(nil, broker, DefaultSocketPath(), "test")
 
 	broker.Publish(types.ProgressEvent{Type: "scanning", Progress: 0.2, Message: "starting"})
 

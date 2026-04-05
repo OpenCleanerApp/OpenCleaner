@@ -18,6 +18,12 @@ func NewBroker() *Broker {
 	return &Broker{subs: map[int]chan types.ProgressEvent{}}
 }
 
+func (b *Broker) SubscriberCount() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return len(b.subs)
+}
+
 func (b *Broker) Publish(evt types.ProgressEvent) {
 	b.mu.Lock()
 	b.last = &evt

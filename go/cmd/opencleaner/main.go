@@ -22,7 +22,7 @@ func main() {
 		os.Exit(2)
 	}
 
-	socketPath := "/tmp/opencleaner.sock"
+	socketPath := transport.DefaultSocketPath()
 	jsonOut := false
 
 	// global flags (very small parser): --socket=..., --json
@@ -136,7 +136,7 @@ func print(jsonOut bool, v any) {
 func usage() {
 	fmt.Println("opencleaner (MVP)")
 	fmt.Println("Usage:")
-	fmt.Println("  opencleaner [--socket=/tmp/opencleaner.sock] [--json] status")
+	fmt.Printf("  opencleaner [--socket=%s] [--json] status\n", transport.DefaultSocketPath())
 	fmt.Println("  opencleaner [--socket=...] [--json] scan")
 	fmt.Println("  opencleaner [--socket=...] [--json] clean <id1,id2> [--dry-run] [--unsafe] [--force] [--strategy=trash|delete]")
 	fmt.Println("  opencleaner version")

@@ -22,7 +22,7 @@ import (
 var version = "dev"
 
 func main() {
-	socketPath := flag.String("socket", "/tmp/opencleaner.sock", "unix socket path")
+	socketPath := flag.String("socket", transport.DefaultSocketPath(), "unix socket path")
 	flag.Parse()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
