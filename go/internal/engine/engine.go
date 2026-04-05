@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"time"
 
@@ -44,36 +45,94 @@ func (e *Engine) Scan(ctx context.Context) (types.ScanResult, error) {
 		return res, nil
 	}
 
-	items := make([]types.ScanItem, 0, len(e.rules))
+	// Filter to existing targets first (cheap), then size them concurrently.
+	existing := make([]rules.Rule, 0, len(e.rules))
+	for _, r := range e.rules {
+		if _, err := os.Lstat(r.Path); err == nil {
+			existing = append(existing, r)
+		}
+	}
+	if len(existing) == 0 {
+		res := types.ScanResult{TotalSize: 0, Items: []types.ScanItem{}, ScanDurationMs: time.Since(start).Milliseconds(), CategorizedSize: map[types.Category]int64{}}
+		e.broker.Publish(types.ProgressEvent{Type: "complete", Progress: 1, Message: "scan complete"})
+		return res, nil
+	}
+
+	type scanJob struct {
+		r rules.Rule
+	}
+	type scanOut struct {
+		r    rules.Rule
+		size int64
+	}
+
+	jobs := make(chan scanJob)
+	results := make(chan scanOut, len(existing))
+
+	workerCount := runtime.NumCPU()
+	if workerCount > 4 {
+		workerCount = 4
+	}
+	if workerCount < 1 {
+		workerCount = 1
+	}
+	if workerCount > len(existing) {
+		workerCount = len(existing)
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(workerCount)
+	for i := 0; i < workerCount; i++ {
+		go func() {
+			defer wg.Done()
+			for j := range jobs {
+				sz, _ := getPathSize(ctx, j.r.Path)
+				results <- scanOut{r: j.r, size: sz}
+			}
+		}()
+	}
+
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	go func() {
+		defer close(jobs)
+		for _, r := range existing {
+			select {
+			case <-ctx.Done():
+				return
+			case jobs <- scanJob{r: r}:
+			}
+		}
+	}()
+
+	items := make([]types.ScanItem, 0, len(existing))
 	categorized := map[types.Category]int64{}
 
-	for i, r := range e.rules {
-		select {
-		case <-ctx.Done():
-			return types.ScanResult{}, ctx.Err()
-		default:
-		}
-
-		progress := float64(i) / float64(len(e.rules))
-		e.broker.Publish(types.ProgressEvent{Type: "scanning", Current: r.Path, Progress: progress})
-
-		if _, err := os.Lstat(r.Path); err != nil {
-			continue
-		}
-		sz, _ := getPathSize(ctx, r.Path)
+	done := 0
+	for out := range results {
+		done++
+		progress := float64(done) / float64(len(existing))
+		e.broker.Publish(types.ProgressEvent{Type: "scanning", Current: out.r.Path, Progress: progress})
 
 		it := types.ScanItem{
-			ID:          r.ID,
-			Name:        r.Name,
-			Path:        r.Path,
-			Size:        sz,
-			Category:    r.Category,
-			SafetyLevel: r.Safety,
-			SafetyNote:  r.SafetyNote,
-			Description: r.Desc,
+			ID:          out.r.ID,
+			Name:        out.r.Name,
+			Path:        out.r.Path,
+			Size:        out.size,
+			Category:    out.r.Category,
+			SafetyLevel: out.r.Safety,
+			SafetyNote:  out.r.SafetyNote,
+			Description: out.r.Desc,
 		}
 		items = append(items, it)
-		categorized[r.Category] += sz
+		categorized[out.r.Category] += out.size
+	}
+
+	if ctx.Err() != nil {
+		return types.ScanResult{}, ctx.Err()
 	}
 
 	var total int64
