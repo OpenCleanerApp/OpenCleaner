@@ -61,6 +61,12 @@ type CleanResult struct {
 	DryRun       bool     `json:"dry_run,omitempty"`
 }
 
+type UndoResult struct {
+	RestoredCount int      `json:"restored_count"`
+	RestoredSize  int64    `json:"restored_size"`
+	FailedItems   []string `json:"failed_items"`
+}
+
 type DaemonStatus struct {
 	OK         bool   `json:"ok"`
 	Version    string `json:"version"`

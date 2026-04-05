@@ -1,6 +1,10 @@
 package rules
 
-import "github.com/opencleaner/opencleaner/pkg/types"
+import (
+	"context"
+
+	"github.com/opencleaner/opencleaner/pkg/types"
+)
 
 type Rule struct {
 	ID         string
@@ -10,4 +14,13 @@ type Rule struct {
 	Safety     types.SafetyLevel
 	SafetyNote string
 	Desc       string
+}
+
+// Scanner is a dynamic scan source that discovers targets at runtime.
+// Implementations live in internal/scanner/.
+type Scanner interface {
+	ID() string
+	Name() string
+	Category() types.Category
+	Scan(ctx context.Context) ([]Rule, error)
 }

@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -19,18 +20,26 @@ import (
 )
 
 type Engine struct {
-	rules  []rules.Rule
-	broker *stream.Broker
-	audit  *audit.Logger
+	rules    []rules.Rule
+	scanners []rules.Scanner
+	broker   *stream.Broker
+	audit    *audit.Logger
 
 	jobMu sync.Mutex
 
 	mu       sync.Mutex
 	lastScan map[string]types.ScanItem
+	lastUndo *cleaner.UndoManifest
 }
 
 func New(rules []rules.Rule, broker *stream.Broker, auditLogger *audit.Logger) *Engine {
 	return &Engine{rules: rules, broker: broker, audit: auditLogger, lastScan: map[string]types.ScanItem{}}
+}
+
+func (e *Engine) AddScanner(s rules.Scanner) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.scanners = append(e.scanners, s)
 }
 
 func (e *Engine) Scan(ctx context.Context) (types.ScanResult, error) {
@@ -40,15 +49,53 @@ func (e *Engine) Scan(ctx context.Context) (types.ScanResult, error) {
 	start := time.Now()
 	e.broker.Publish(types.ProgressEvent{Type: "scanning", Progress: 0, Message: "starting"})
 
-	if len(e.rules) == 0 {
+	e.mu.Lock()
+	staticRules := append([]rules.Rule(nil), e.rules...)
+	scanners := append([]rules.Scanner(nil), e.scanners...)
+	e.mu.Unlock()
+
+	if len(staticRules) == 0 && len(scanners) == 0 {
 		res := types.ScanResult{TotalSize: 0, Items: []types.ScanItem{}, ScanDurationMs: time.Since(start).Milliseconds(), CategorizedSize: map[types.Category]int64{}}
 		e.broker.Publish(types.ProgressEvent{Type: "complete", Progress: 1, Message: "scan complete"})
 		return res, nil
 	}
 
+	allRules := make([]rules.Rule, 0, len(staticRules))
+	seenIDs := map[string]struct{}{}
+	for _, r := range staticRules {
+		if err := validateRule(r); err != nil {
+			return types.ScanResult{}, fmt.Errorf("invalid static rule %q: %w", r.ID, err)
+		}
+		if _, ok := seenIDs[r.ID]; ok {
+			return types.ScanResult{}, fmt.Errorf("duplicate rule id %q", r.ID)
+		}
+		seenIDs[r.ID] = struct{}{}
+		allRules = append(allRules, r)
+	}
+
+	for _, sc := range scanners {
+		rs, err := sc.Scan(ctx)
+		if err != nil {
+			return types.ScanResult{}, fmt.Errorf("scanner %s failed: %w", sc.ID(), err)
+		}
+		for _, r := range rs {
+			if r.Category == "" {
+				r.Category = sc.Category()
+			}
+			if err := validateRule(r); err != nil {
+				return types.ScanResult{}, fmt.Errorf("scanner %s returned invalid rule %q: %w", sc.ID(), r.ID, err)
+			}
+			if _, ok := seenIDs[r.ID]; ok {
+				continue
+			}
+			seenIDs[r.ID] = struct{}{}
+			allRules = append(allRules, r)
+		}
+	}
+
 	// Filter to existing targets first (cheap), then size them concurrently.
-	existing := make([]rules.Rule, 0, len(e.rules))
-	for _, r := range e.rules {
+	existing := make([]rules.Rule, 0, len(allRules))
+	for _, r := range allRules {
 		if _, err := os.Lstat(r.Path); err == nil {
 			existing = append(existing, r)
 		}
@@ -188,6 +235,24 @@ func (e *Engine) Clean(ctx context.Context, req types.CleanRequest) (types.Clean
 	var cleanedSize int64
 	cleanedCount := 0
 	failed := []string{}
+	undoEntries := make([]cleaner.UndoEntry, 0, len(items))
+
+	undoHome := ""
+	undoTrash := ""
+	undoRecordEnabled := false
+	if !req.DryRun && (req.Strategy == types.CleanStrategyTrash || req.Strategy == "") {
+		home, err := os.UserHomeDir()
+		if err == nil && home != "" {
+			undoHome = filepath.Clean(home)
+			trash, err := cleaner.TrashDir()
+			if err == nil {
+				undoTrash = filepath.Clean(trash)
+				if isWithinRoot(undoHome, undoTrash) && safety.ValidateNoSymlinkAncestorsWithin(undoHome, undoTrash) == nil {
+					undoRecordEnabled = true
+				}
+			}
+		}
+	}
 
 	for i, it := range items {
 		select {
@@ -240,12 +305,194 @@ func (e *Engine) Clean(ctx context.Context, req types.CleanRequest) (types.Clean
 		} else {
 			cleanedSize += it.Size
 			cleanedCount++
+			if undoRecordEnabled {
+				if err := validateUndoRecordCandidate(undoHome, undoTrash, it.Path, dst); err == nil {
+					undoEntries = append(undoEntries, cleaner.UndoEntry{SrcPath: it.Path, DstPath: dst, Bytes: it.Size, Time: time.Now().UTC()})
+				} else {
+					_ = e.audit.Append(audit.Entry{Time: time.Now().UTC(), Op: "undo_unavailable", SrcPath: it.Path, DstPath: dst, Bytes: it.Size, DryRun: req.DryRun, OK: false, Error: err.Error()})
+				}
+			}
 		}
 		_ = e.audit.Append(entry)
 	}
 
+	if !req.DryRun && len(undoEntries) > 0 {
+		if err := cleaner.SaveManifest(undoEntries, ""); err != nil {
+			e.broker.Publish(types.ProgressEvent{Type: "warning", Message: "failed to save undo manifest: " + err.Error()})
+			_ = e.audit.Append(audit.Entry{Time: time.Now().UTC(), Op: "undo_manifest", Bytes: cleanedSize, DryRun: req.DryRun, OK: false, Error: err.Error()})
+		} else {
+			e.mu.Lock()
+			e.lastUndo = &cleaner.UndoManifest{Version: 1, Entries: undoEntries}
+			e.mu.Unlock()
+		}
+	}
+	if !req.DryRun && cleanedCount > 0 && req.Strategy == types.CleanStrategyDelete {
+		if err := cleaner.ClearManifest(""); err != nil {
+			e.broker.Publish(types.ProgressEvent{Type: "warning", Message: "failed to clear undo manifest: " + err.Error()})
+			_ = e.audit.Append(audit.Entry{Time: time.Now().UTC(), Op: "undo_manifest_clear", Bytes: cleanedSize, DryRun: req.DryRun, OK: false, Error: err.Error()})
+		} else {
+			e.mu.Lock()
+			e.lastUndo = nil
+			e.mu.Unlock()
+		}
+	}
+
 	e.broker.Publish(types.ProgressEvent{Type: "complete", Progress: 1, Message: "clean complete"})
 	return types.CleanResult{CleanedSize: cleanedSize, CleanedCount: cleanedCount, FailedItems: failed, AuditLogPath: e.audit.Path(), DryRun: req.DryRun}, nil
+}
+
+func (e *Engine) Undo(ctx context.Context) (types.UndoResult, error) {
+	e.jobMu.Lock()
+	defer e.jobMu.Unlock()
+
+	e.broker.Publish(types.ProgressEvent{Type: "undoing", Progress: 0, Message: "starting"})
+	m, err := cleaner.LoadManifest("")
+	if err != nil {
+		return types.UndoResult{}, err
+	}
+
+	restored, failed, err := cleaner.Restore(ctx, m)
+	if err != nil {
+		return types.UndoResult{}, err
+	}
+
+	failedSet := map[string]struct{}{}
+	for _, p := range failed {
+		failedSet[filepath.Clean(p)] = struct{}{}
+	}
+	var restoredSize int64
+	for _, ent := range m.Entries {
+		if _, ok := failedSet[filepath.Clean(ent.SrcPath)]; ok {
+			continue
+		}
+		restoredSize += ent.Bytes
+		_ = e.audit.Append(audit.Entry{Time: time.Now().UTC(), Op: "undo", SrcPath: ent.DstPath, DstPath: ent.SrcPath, Bytes: ent.Bytes, DryRun: false, OK: true})
+	}
+	for _, p := range failed {
+		_ = e.audit.Append(audit.Entry{Time: time.Now().UTC(), Op: "undo", SrcPath: p, Bytes: 0, DryRun: false, OK: false, Error: "restore failed"})
+	}
+
+	if len(failed) == 0 {
+		if err := cleaner.ClearManifest(""); err != nil {
+			e.broker.Publish(types.ProgressEvent{Type: "warning", Message: "failed to clear undo manifest: " + err.Error()})
+			_ = e.audit.Append(audit.Entry{Time: time.Now().UTC(), Op: "undo_manifest_clear", DryRun: false, OK: false, Error: err.Error()})
+		}
+		e.mu.Lock()
+		e.lastUndo = nil
+		e.mu.Unlock()
+	} else {
+		remaining := make([]cleaner.UndoEntry, 0, len(failed))
+		for _, ent := range m.Entries {
+			if _, ok := failedSet[filepath.Clean(ent.SrcPath)]; ok {
+				remaining = append(remaining, ent)
+			}
+		}
+		if len(remaining) == 0 {
+			if err := cleaner.ClearManifest(""); err != nil {
+				e.broker.Publish(types.ProgressEvent{Type: "warning", Message: "failed to clear undo manifest: " + err.Error()})
+				_ = e.audit.Append(audit.Entry{Time: time.Now().UTC(), Op: "undo_manifest_clear", DryRun: false, OK: false, Error: err.Error()})
+			}
+		} else {
+			if err := cleaner.SaveManifest(remaining, ""); err != nil {
+				e.broker.Publish(types.ProgressEvent{Type: "warning", Message: "failed to save undo manifest: " + err.Error()})
+				_ = e.audit.Append(audit.Entry{Time: time.Now().UTC(), Op: "undo_manifest", DryRun: false, OK: false, Error: err.Error()})
+			}
+		}
+		e.mu.Lock()
+		e.lastUndo = &cleaner.UndoManifest{Version: m.Version, Entries: remaining}
+		e.mu.Unlock()
+	}
+
+	e.broker.Publish(types.ProgressEvent{Type: "complete", Progress: 1, Message: "undo complete"})
+	return types.UndoResult{RestoredCount: restored, RestoredSize: restoredSize, FailedItems: failed}, nil
+}
+
+func isWithinRoot(root, absPath string) bool {
+	if root == "" || absPath == "" {
+		return false
+	}
+	root = filepath.Clean(root)
+	absPath = filepath.Clean(absPath)
+	if !filepath.IsAbs(root) || !filepath.IsAbs(absPath) {
+		return false
+	}
+	rel, err := filepath.Rel(root, absPath)
+	if err != nil {
+		return false
+	}
+	rel = filepath.Clean(rel)
+	if rel == "." {
+		return true
+	}
+	if rel == ".." {
+		return false
+	}
+	if strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return false
+	}
+	return true
+}
+
+func validateUndoRecordCandidate(home, trash, src, dst string) error {
+	if home == "" || trash == "" {
+		return errors.New("undo roots not available")
+	}
+	src = filepath.Clean(src)
+	dst = filepath.Clean(dst)
+
+	if src == "" || dst == "" {
+		return errors.New("empty path")
+	}
+	if !filepath.IsAbs(src) || !filepath.IsAbs(dst) {
+		return errors.New("paths must be absolute")
+	}
+	if safety.HasTraversalPattern(src) || safety.HasTraversalPattern(dst) {
+		return errors.New("path contains traversal pattern")
+	}
+	if !isWithinRoot(home, src) {
+		return errors.New("src outside home")
+	}
+	if !isWithinRoot(home, trash) {
+		return errors.New("trash outside home")
+	}
+	if !isWithinRoot(trash, dst) {
+		return errors.New("dst outside trash")
+	}
+	if err := safety.ValidatePathSafety(src); err != nil {
+		return err
+	}
+	if err := safety.ValidateNoSymlinkAncestorsWithin(home, filepath.Dir(src)); err != nil {
+		return err
+	}
+	if err := safety.ValidateNoSymlinkAncestorsWithin(home, filepath.Dir(dst)); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateRule(r rules.Rule) error {
+	if strings.TrimSpace(r.ID) == "" {
+		return errors.New("empty id")
+	}
+	if strings.TrimSpace(r.Name) == "" {
+		return errors.New("empty name")
+	}
+	if strings.TrimSpace(r.Path) == "" {
+		return errors.New("empty path")
+	}
+	if !filepath.IsAbs(r.Path) {
+		return errors.New("path must be absolute")
+	}
+	if safety.HasTraversalPattern(r.Path) {
+		return errors.New("path contains traversal pattern")
+	}
+	if r.Category == "" {
+		return errors.New("empty category")
+	}
+	if r.Safety == "" {
+		return errors.New("empty safety")
+	}
+	return nil
 }
 
 func getPathSize(ctx context.Context, root string) (int64, error) {

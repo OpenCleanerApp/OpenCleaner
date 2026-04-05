@@ -3,6 +3,7 @@ package transport
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"log"
 	"net/http"
@@ -30,6 +31,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/v1/status", s.handleStatus)
 	mux.HandleFunc("/api/v1/scan", s.handleScan)
 	mux.HandleFunc("/api/v1/clean", s.handleClean)
+	mux.HandleFunc("/api/v1/undo", s.handleUndo)
 	mux.HandleFunc("/api/v1/progress/stream", s.handleProgressStream)
 	return mux
 }
@@ -78,6 +80,23 @@ func (s *Server) handleClean(w http.ResponseWriter, r *http.Request) {
 	res, err := s.engine.Clean(r.Context(), req)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+func (s *Server) handleUndo(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	res, err := s.engine.Undo(r.Context())
+	if err != nil {
+		code := http.StatusInternalServerError
+		if errors.Is(err, os.ErrNotExist) {
+			code = http.StatusNotFound
+		}
+		writeJSON(w, code, map[string]any{"error": err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, res)

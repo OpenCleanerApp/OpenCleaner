@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/opencleaner/opencleaner/internal/daemon"
 	"github.com/opencleaner/opencleaner/internal/transport"
 	"github.com/opencleaner/opencleaner/pkg/types"
 )
@@ -61,7 +62,18 @@ func main() {
 			fmt.Fprintln(os.Stderr, "clean requires comma-separated item ids")
 			os.Exit(2)
 		}
-		ids := strings.Split(args[1], ",")
+		rawIDs := strings.Split(args[1], ",")
+		ids := make([]string, 0, len(rawIDs))
+		for _, id := range rawIDs {
+			id = strings.TrimSpace(id)
+			if id != "" {
+				ids = append(ids, id)
+			}
+		}
+		if len(ids) == 0 {
+			fmt.Fprintln(os.Stderr, "clean requires at least one item id")
+			os.Exit(2)
+		}
 		req := types.CleanRequest{ItemIDs: ids, Strategy: types.CleanStrategyTrash, DryRun: true}
 		confirmed := false
 		for _, a := range args[2:] {
@@ -92,6 +104,42 @@ func main() {
 		var res types.CleanResult
 		doJSON(client, http.MethodPost, baseURL+"/api/v1/clean", req, &res)
 		print(jsonOut, res)
+	case "undo":
+		var res types.UndoResult
+		doJSON(client, http.MethodPost, baseURL+"/api/v1/undo", map[string]any{}, &res)
+		print(jsonOut, res)
+	case "daemon":
+		if len(args) < 2 {
+			usage()
+			os.Exit(2)
+		}
+		sub := args[1]
+		switch sub {
+		case "install":
+			binaryPath := "/usr/local/bin/opencleanerd"
+			for _, a := range args[2:] {
+				if strings.HasPrefix(a, "--binary-path=") {
+					binaryPath = strings.TrimPrefix(a, "--binary-path=")
+				}
+			}
+			if err := daemon.InstallPlistWithSocket(binaryPath, socketPath); err != nil {
+				fatal(err)
+			}
+			print(jsonOut, map[string]any{"ok": true})
+		case "uninstall":
+			if err := daemon.UninstallPlist(); err != nil {
+				fatal(err)
+			}
+			print(jsonOut, map[string]any{"ok": true})
+		case "restart":
+			if err := daemon.Restart(); err != nil {
+				fatal(err)
+			}
+			print(jsonOut, map[string]any{"ok": true})
+		default:
+			usage()
+			os.Exit(2)
+		}
 	default:
 		usage()
 		os.Exit(2)
@@ -101,20 +149,37 @@ func main() {
 func doJSON(client *http.Client, method, url string, body any, out any) {
 	var rdr io.Reader
 	if body != nil {
-		b, _ := json.Marshal(body)
+		b, err := json.Marshal(body)
+		if err != nil {
+			fatal(err)
+		}
 		rdr = bytes.NewReader(b)
 	}
-	req, _ := http.NewRequest(method, url, rdr)
+	req, err := http.NewRequest(method, url, rdr)
+	if err != nil {
+		fatal(err)
+	}
 	req.Header.Set("Content-Type", "application/json")
+
 	resp, err := client.Do(req)
 	if err != nil {
 		fatal(err)
 	}
 	defer resp.Body.Close()
+
 	if resp.StatusCode >= 400 {
 		b, _ := io.ReadAll(resp.Body)
+		var apiErr struct {
+			Error string `json:"error"`
+		}
+		if err := json.Unmarshal(b, &apiErr); err == nil {
+			if msg := strings.TrimSpace(apiErr.Error); msg != "" {
+				fatal(fmt.Errorf("%s", msg))
+			}
+		}
 		fatal(fmt.Errorf("%s", strings.TrimSpace(string(b))))
 	}
+
 	if out != nil {
 		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
 			fatal(err)
@@ -141,6 +206,11 @@ func print(jsonOut bool, v any) {
 		if len(t.FailedItems) > 0 {
 			fmt.Printf("failed IDs: %s\n", strings.Join(t.FailedItems, ","))
 		}
+	case types.UndoResult:
+		fmt.Printf("restored=%d items, %d bytes; failed=%d\n", t.RestoredCount, t.RestoredSize, len(t.FailedItems))
+		if len(t.FailedItems) > 0 {
+			fmt.Printf("failed paths: %s\n", strings.Join(t.FailedItems, ","))
+		}
 	default:
 		b, _ := json.MarshalIndent(v, "", "  ")
 		fmt.Println(string(b))
@@ -153,6 +223,10 @@ func usage() {
 	fmt.Printf("  opencleaner [--socket=%s] [--json] status\n", transport.DefaultSocketPath())
 	fmt.Println("  opencleaner [--socket=...] [--json] scan")
 	fmt.Println("  opencleaner [--socket=...] [--json] clean <id1,id2> [--dry-run] [--execute --yes] [--unsafe] [--force] [--strategy=trash|delete] [--exclude=/path]")
+	fmt.Println("  opencleaner [--socket=...] [--json] undo")
+	fmt.Println("  opencleaner daemon install [--binary-path=/usr/local/bin/opencleanerd] [--socket=...]")
+	fmt.Println("  opencleaner daemon uninstall")
+	fmt.Println("  opencleaner daemon restart")
 	fmt.Println("  opencleaner version")
 }
 

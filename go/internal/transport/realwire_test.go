@@ -299,6 +299,114 @@ func TestRealWire_CleanBlocksExcludedPaths(t *testing.T) {
 	}
 }
 
+func TestRealWire_UndoEndpoint(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix domain sockets not supported on windows")
+	}
+
+	base := os.TempDir()
+	if st, err := os.Stat("/tmp"); err == nil && st.IsDir() {
+		base = "/tmp"
+	}
+	home, err := os.MkdirTemp(base, "opencleaner-home-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.RemoveAll(home)
+	})
+	t.Setenv("HOME", home)
+
+	target := filepath.Join(home, "Library", "Caches", "undo-target")
+	if err := os.MkdirAll(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "a.txt"), []byte("hello"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	socketPath, _, _ := startTestDaemonWithRules(t, []rules.Rule{{
+		ID:       "test-target",
+		Name:     "Test Target",
+		Path:     target,
+		Category: types.CategorySystem,
+		Safety:   types.SafetySafe,
+		Desc:     "test data",
+	}})
+
+	client := NewUnixSocketHTTPClient(socketPath)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Scan to populate lastScan.
+	{
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://unix/api/v1/scan", strings.NewReader(`{}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			b, _ := io.ReadAll(resp.Body)
+			t.Fatalf("expected 200, got %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+		}
+	}
+
+	// Clean (execute) should move the target into ~/.Trash.
+	{
+		body := `{"item_ids":["test-target"],"strategy":"trash","dry_run":false}`
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://unix/api/v1/clean", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			b, _ := io.ReadAll(resp.Body)
+			t.Fatalf("expected 200, got %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+		}
+	}
+	if _, err := os.Lstat(target); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected target moved to trash, got err=%v", err)
+	}
+
+	// Undo should restore it.
+	{
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://unix/api/v1/undo", strings.NewReader(`{}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			b, _ := io.ReadAll(resp.Body)
+			t.Fatalf("expected 200, got %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+		}
+		var res types.UndoResult
+		if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+			t.Fatal(err)
+		}
+		if res.RestoredCount != 1 {
+			t.Fatalf("expected restored_count=1, got %d", res.RestoredCount)
+		}
+	}
+	if _, err := os.Lstat(target); err != nil {
+		t.Fatalf("expected target restored: %v", err)
+	}
+}
+
 func readChunk(r *bufio.Reader, maxBytes int) ([]byte, error) {
 	line, err := r.ReadString('\n')
 	if err != nil {

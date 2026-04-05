@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>{{xml .Label}}</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>{{xml .BinaryPath}}</string>
+    <string>--socket={{xml .SocketPath}}</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <{{if .RunAtLoad}}true{{else}}false{{end}}/>
+
+  <key>KeepAlive</key>
+  <{{if .KeepAlive}}true{{else}}false{{end}}/>
+
+  <key>StandardOutPath</key>
+  <string>{{xml .StdoutPath}}</string>
+
+  <key>StandardErrorPath</key>
+  <string>{{xml .StderrPath}}</string>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+</dict>
+</plist>
