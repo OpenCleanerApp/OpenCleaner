@@ -95,13 +95,22 @@ public enum CleanStrategy: String, Codable, Sendable {
 
 public struct CleanRequest: Codable, Sendable {
     public let itemIDs: [String]
+    public let excludePaths: [String]?
     public let strategy: CleanStrategy
     public let dryRun: Bool?
     public let unsafe: Bool?
     public let force: Bool?
 
-    public init(itemIDs: [String], strategy: CleanStrategy, dryRun: Bool? = nil, unsafe: Bool? = nil, force: Bool? = nil) {
+    public init(
+        itemIDs: [String],
+        excludePaths: [String]? = nil,
+        strategy: CleanStrategy,
+        dryRun: Bool? = nil,
+        unsafe: Bool? = nil,
+        force: Bool? = nil
+    ) {
         self.itemIDs = itemIDs
+        self.excludePaths = excludePaths
         self.strategy = strategy
         self.dryRun = dryRun
         self.unsafe = unsafe
@@ -110,6 +119,7 @@ public struct CleanRequest: Codable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case itemIDs = "item_ids"
+        case excludePaths = "exclude_paths"
         case strategy
         case dryRun = "dry_run"
         case unsafe

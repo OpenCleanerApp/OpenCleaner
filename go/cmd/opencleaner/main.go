@@ -56,7 +56,7 @@ func main() {
 		doJSON(client, http.MethodPost, baseURL+"/api/v1/scan", map[string]any{}, &res)
 		print(jsonOut, res)
 	case "clean":
-		// Usage: clean <id1,id2,...> [--dry-run] [--unsafe] [--force] [--strategy=trash|delete]
+		// Usage: clean <id1,id2,...> [--dry-run] [--unsafe] [--force] [--strategy=trash|delete] [--exclude=/path]
 		if len(args) < 2 {
 			fmt.Fprintln(os.Stderr, "clean requires comma-separated item ids")
 			os.Exit(2)
@@ -73,6 +73,11 @@ func main() {
 				req.Force = true
 			case strings.HasPrefix(a, "--strategy="):
 				req.Strategy = types.CleanStrategy(strings.TrimPrefix(a, "--strategy="))
+			case strings.HasPrefix(a, "--exclude="):
+				p := strings.TrimPrefix(a, "--exclude=")
+				if p != "" {
+					req.ExcludePaths = append(req.ExcludePaths, p)
+				}
 			}
 		}
 		var res types.CleanResult
@@ -138,7 +143,7 @@ func usage() {
 	fmt.Println("Usage:")
 	fmt.Printf("  opencleaner [--socket=%s] [--json] status\n", transport.DefaultSocketPath())
 	fmt.Println("  opencleaner [--socket=...] [--json] scan")
-	fmt.Println("  opencleaner [--socket=...] [--json] clean <id1,id2> [--dry-run] [--unsafe] [--force] [--strategy=trash|delete]")
+	fmt.Println("  opencleaner [--socket=...] [--json] clean <id1,id2> [--dry-run] [--unsafe] [--force] [--strategy=trash|delete] [--exclude=/path]")
 	fmt.Println("  opencleaner version")
 }
 

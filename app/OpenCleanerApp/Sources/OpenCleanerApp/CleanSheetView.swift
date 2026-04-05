@@ -8,6 +8,19 @@ struct CleanSheetView: View {
     @State private var dryRun: Bool = true
     @State private var allowRisky: Bool = false
 
+    private func isExcluded(_ path: String, excludedPaths: [String]) -> Bool {
+        guard !excludedPaths.isEmpty else { return false }
+
+        let p = (path as NSString).standardizingPath
+        for ex in excludedPaths {
+            let e = (ex as NSString).standardizingPath
+            if p == e || p.hasPrefix(e + "/") {
+                return true
+            }
+        }
+        return false
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Preview & Clean")
@@ -15,16 +28,29 @@ struct CleanSheetView: View {
 
             if let scan = model.lastScan {
                 let selected = scan.items.filter { model.selectedItemIDs.contains($0.id) }
-                let rows = selected.sorted(by: { $0.size > $1.size })
-                let totalSize = sumSizes(selected)
-                let containsRisky = selected.contains { $0.safetyLevel == .risky }
 
-                Text("\(selected.count) items • \(formatBytes(totalSize))")
+                let actionable = selected.filter { !isExcluded($0.path, excludedPaths: model.excludedPaths) }
+                let excludedCount = selected.count - actionable.count
+
+                let rows = actionable.sorted(by: { $0.size > $1.size })
+                let totalSize = sumSizes(actionable)
+                let containsRisky = actionable.contains { $0.safetyLevel == .risky }
+
+                Text("\(actionable.count) items • \(formatBytes(totalSize))")
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
 
                 Toggle("Dry run (no files will be deleted)", isOn: $dryRun)
                 Toggle("Allow risky items (unsafe)", isOn: $allowRisky)
+
+                if excludedCount > 0 {
+                    OCBanner(
+                        title: "Excluded paths",
+                        message: "\(excludedCount) selected item(s) are under excluded paths in Settings and will be skipped.",
+                        systemImage: "hand.raised.fill",
+                        tint: .gray
+                    )
+                }
 
                 if containsRisky && !allowRisky {
                     OCBanner(
@@ -75,7 +101,7 @@ struct CleanSheetView: View {
                         dismiss()
                     }
                     .keyboardShortcut(.defaultAction)
-                    .disabled(!model.isOnline || selected.isEmpty || containsRisky && !allowRisky || model.activity != .idle)
+                    .disabled(!model.isOnline || actionable.isEmpty || containsRisky && !allowRisky || model.activity != .idle)
                     .buttonStyle(.borderedProminent)
                 }
             } else {

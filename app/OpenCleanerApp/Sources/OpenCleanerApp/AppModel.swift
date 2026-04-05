@@ -16,7 +16,22 @@ final class AppModel: ObservableObject {
         case offline(message: String)
     }
 
-    @Published var socketPath: String = OpenCleanerDefaults.defaultSocketPath()
+    private enum DefaultsKey {
+        static let socketPath = "socketPathOverride"
+        static let excludedPaths = "excludedPaths"
+    }
+
+    @Published var socketPath: String = OpenCleanerDefaults.defaultSocketPath() {
+        didSet {
+            UserDefaults.standard.set(socketPath, forKey: DefaultsKey.socketPath)
+        }
+    }
+
+    @Published var excludedPaths: [String] = [] {
+        didSet {
+            UserDefaults.standard.set(excludedPaths, forKey: DefaultsKey.excludedPaths)
+        }
+    }
 
     @Published var connectionState: ConnectionState = .unknown
     @Published var activity: Activity = .idle
@@ -34,6 +49,15 @@ final class AppModel: ObservableObject {
     private var progressTask: Task<Void, Never>?
     private var statusTask: Task<Void, Never>?
     private var actionTask: Task<Void, Never>?
+
+    init() {
+        if let savedSocket = UserDefaults.standard.string(forKey: DefaultsKey.socketPath), !savedSocket.isEmpty {
+            socketPath = savedSocket
+        }
+        if let savedExcluded = UserDefaults.standard.array(forKey: DefaultsKey.excludedPaths) as? [String] {
+            excludedPaths = savedExcluded
+        }
+    }
 
     deinit {
         progressTask?.cancel()
@@ -108,14 +132,19 @@ final class AppModel: ObservableObject {
         guard activity == .idle else { return }
         guard let scan = lastScan else { return }
 
-        let ids = scan.items
-            .filter { selectedItemIDs.contains($0.id) }
+        let selected = scan.items.filter { selectedItemIDs.contains($0.id) }
+        let ids = selected
+            .filter { !isExcludedPath($0.path) }
             .map(\.id)
 
         guard !ids.isEmpty else {
-            lastError = "No valid items selected."
-            selectedItemIDs = []
-            focusedItemID = nil
+            if selected.isEmpty {
+                lastError = "No valid items selected."
+                selectedItemIDs = []
+                focusedItemID = nil
+            } else {
+                lastError = "All selected items are excluded in Settings."
+            }
             return
         }
 
@@ -133,7 +162,7 @@ final class AppModel: ObservableObject {
             }
 
             do {
-                let req = CleanRequest(itemIDs: ids, strategy: .trash, dryRun: dryRun, unsafe: unsafe)
+                let req = CleanRequest(itemIDs: ids, excludePaths: excludedPaths.isEmpty ? nil : excludedPaths, strategy: .trash, dryRun: dryRun, unsafe: unsafe)
                 let res = try await client.clean(request: req)
                 lastCleanResult = res
             } catch {
@@ -161,9 +190,24 @@ final class AppModel: ObservableObject {
     }
 
     private func applyDefaultSelection(from scan: ScanResult) {
-        let safeDefault = scan.items.filter { $0.safetyLevel != .risky }.map(\.id)
+        let safeDefault = scan.items
+            .filter { $0.safetyLevel != .risky && !isExcludedPath($0.path) }
+            .map(\.id)
         selectedItemIDs = Set(safeDefault)
         focusedItemID = scan.items.first(where: { selectedItemIDs.contains($0.id) })?.id
+    }
+
+    private func isExcludedPath(_ path: String) -> Bool {
+        guard !excludedPaths.isEmpty else { return false }
+
+        let p = (path as NSString).standardizingPath
+        for raw in excludedPaths {
+            let ex = ((raw as NSString).expandingTildeInPath as NSString).standardizingPath
+            if p == ex || p.hasPrefix(ex + "/") {
+                return true
+            }
+        }
+        return false
     }
 
     private func startProgressConsumer(expectedStartType: String) {

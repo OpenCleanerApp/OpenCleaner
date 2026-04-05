@@ -45,11 +45,12 @@ const (
 )
 
 type CleanRequest struct {
-	ItemIDs  []string      `json:"item_ids"`
-	Strategy CleanStrategy `json:"strategy"`
-	DryRun   bool          `json:"dry_run,omitempty"`
-	Unsafe   bool          `json:"unsafe,omitempty"`
-	Force    bool          `json:"force,omitempty"`
+	ItemIDs      []string      `json:"item_ids"`
+	ExcludePaths []string      `json:"exclude_paths,omitempty"`
+	Strategy     CleanStrategy `json:"strategy"`
+	DryRun       bool          `json:"dry_run,omitempty"`
+	Unsafe       bool          `json:"unsafe,omitempty"`
+	Force        bool          `json:"force,omitempty"`
 }
 
 type CleanResult struct {

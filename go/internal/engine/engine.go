@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -182,6 +183,8 @@ func (e *Engine) Clean(ctx context.Context, req types.CleanRequest) (types.Clean
 		return types.CleanResult{}, errors.New("no matching items (run scan first)")
 	}
 
+	excludes := normalizeExcludePaths(req.ExcludePaths)
+
 	var cleanedSize int64
 	cleanedCount := 0
 	failed := []string{}
@@ -195,6 +198,12 @@ func (e *Engine) Clean(ctx context.Context, req types.CleanRequest) (types.Clean
 
 		progress := float64(i) / float64(len(items))
 		e.broker.Publish(types.ProgressEvent{Type: "cleaning", Current: it.Path, Progress: progress})
+
+		if isExcludedPath(it.Path, excludes) {
+			failed = append(failed, it.ID)
+			_ = e.audit.Append(audit.Entry{Time: time.Now().UTC(), Op: "blocked_exclude", SrcPath: it.Path, Bytes: it.Size, DryRun: req.DryRun, OK: false, Error: "excluded by user"})
+			continue
+		}
 
 		if it.SafetyLevel == types.SafetyRisky && !req.Unsafe {
 			failed = append(failed, it.ID)
@@ -269,4 +278,71 @@ func getPathSize(ctx context.Context, root string) (int64, error) {
 		return nil
 	})
 	return total, err
+}
+
+func normalizeExcludePaths(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+
+	home, _ := os.UserHomeDir()
+	out := make([]string, 0, len(in))
+	seen := map[string]struct{}{}
+
+	for _, raw := range in {
+		p := strings.TrimSpace(raw)
+		if p == "" {
+			continue
+		}
+
+		p = expandTilde(p, home)
+		if !filepath.IsAbs(p) && home != "" {
+			p = filepath.Join(home, p)
+		}
+		p = filepath.Clean(p)
+		if p == "" || p == "." {
+			continue
+		}
+
+		if _, ok := seen[p]; ok {
+			continue
+		}
+		seen[p] = struct{}{}
+		out = append(out, p)
+	}
+
+	return out
+}
+
+func expandTilde(p, home string) string {
+	if home == "" {
+		return p
+	}
+	if p == "~" {
+		return home
+	}
+	prefix := "~" + string(os.PathSeparator)
+	if strings.HasPrefix(p, prefix) {
+		return filepath.Join(home, strings.TrimPrefix(p, prefix))
+	}
+	return p
+}
+
+func isExcludedPath(path string, excludes []string) bool {
+	if len(excludes) == 0 {
+		return false
+	}
+	p := filepath.Clean(path)
+	for _, ex := range excludes {
+		if ex == "" {
+			continue
+		}
+		if p == ex {
+			return true
+		}
+		if strings.HasPrefix(p, ex+string(os.PathSeparator)) {
+			return true
+		}
+	}
+	return false
 }
