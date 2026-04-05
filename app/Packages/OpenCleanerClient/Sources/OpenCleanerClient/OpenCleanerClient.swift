@@ -410,8 +410,6 @@ fileprivate final class SSEReader: @unchecked Sendable {
     private var httpChunkBuf = Data()
 
     private var eventBuf = Data()
-    private let sseDelimCRLF = Data("\r\n\r\n".utf8)
-    private let sseDelimLF = Data("\n\n".utf8)
     private let maxEventBufferBytes = 4 << 20
     private let maxHeaderBytes = 64 * 1024
     private let maxChunkBufferBytes = 2 << 20
@@ -579,7 +577,7 @@ fileprivate final class SSEReader: @unchecked Sendable {
                 if eventBuf.count > maxEventBufferBytes {
                     throw OpenCleanerError.invalidUTF8
                 }
-                drainEventsFromBytes()
+                try drainEventsFromBytes()
             }
 
             if chunkedDone {
@@ -592,31 +590,10 @@ fileprivate final class SSEReader: @unchecked Sendable {
         }
     }
 
-    private func drainEventsFromBytes() {
-        while true {
-            let r1 = eventBuf.range(of: sseDelimCRLF)
-            let r2 = eventBuf.range(of: sseDelimLF)
-
-            let delim: Range<Data.Index>?
-            if let r1, let r2 {
-                delim = (r1.lowerBound <= r2.lowerBound) ? r1 : r2
-            } else {
-                delim = r1 ?? r2
-            }
-
-            guard let delim else { return }
-
-            let eventBytes = eventBuf.subdata(in: eventBuf.startIndex..<delim.lowerBound)
-            eventBuf.removeSubrange(eventBuf.startIndex..<delim.upperBound)
-
-            guard let raw = String(data: eventBytes, encoding: .utf8) else {
-                finish(OpenCleanerError.invalidUTF8)
-                conn.cancel()
-                return
-            }
-
-            let normalized = raw.replacingOccurrences(of: "\r\n", with: "\n")
-            if let evt = parseSSEDataEvent(normalized) {
+    private func drainEventsFromBytes() throws {
+        let rawEvents = try extractSSEEventsFromBuffer(&eventBuf)
+        for raw in rawEvents {
+            if let evt = parseSSEDataEvent(raw) {
                 yield(evt)
             }
         }
@@ -761,7 +738,7 @@ private func decodeChunkedBody(_ data: Data) throws -> Data {
     return out
 }
 
-private func decodeChunkedFromBuffer(_ buffer: inout Data, maxBytes: Int) throws -> (Data, Bool) {
+internal func decodeChunkedFromBuffer(_ buffer: inout Data, maxBytes: Int) throws -> (Data, Bool) {
     let crlf = Data("\r\n".utf8)
     let endMarker = Data("\r\n\r\n".utf8)
     var out = Data()
@@ -814,7 +791,37 @@ private func decodeChunkedFromBuffer(_ buffer: inout Data, maxBytes: Int) throws
     return (out, false)
 }
 
-private func parseSSEDataEvent(_ rawEvent: String) -> ProgressEvent? {
+private let sseDelimCRLF = Data("\r\n\r\n".utf8)
+private let sseDelimLF = Data("\n\n".utf8)
+
+internal func extractSSEEventsFromBuffer(_ buffer: inout Data) throws -> [String] {
+    var out: [String] = []
+
+    while true {
+        let r1 = buffer.range(of: sseDelimCRLF)
+        let r2 = buffer.range(of: sseDelimLF)
+
+        let delim: Range<Data.Index>?
+        if let r1, let r2 {
+            delim = (r1.lowerBound <= r2.lowerBound) ? r1 : r2
+        } else {
+            delim = r1 ?? r2
+        }
+
+        guard let delim else { return out }
+
+        let eventBytes = buffer.subdata(in: buffer.startIndex..<delim.lowerBound)
+        buffer.removeSubrange(buffer.startIndex..<delim.upperBound)
+
+        guard let raw = String(data: eventBytes, encoding: .utf8) else {
+            throw OpenCleanerError.invalidUTF8
+        }
+
+        out.append(raw.replacingOccurrences(of: "\r\n", with: "\n"))
+    }
+}
+
+internal func parseSSEDataEvent(_ rawEvent: String) -> ProgressEvent? {
     // Accept multi-line `data:` events; ignore pings/comments.
     let lines = rawEvent.split(separator: "\n", omittingEmptySubsequences: false)
     var dataLines: [String] = []
