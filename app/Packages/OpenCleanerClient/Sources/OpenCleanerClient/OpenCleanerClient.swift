@@ -194,6 +194,118 @@ public protocol OpenCleanerClientProtocol: Sendable {
     func progressStream() -> AsyncThrowingStream<ProgressEvent, Error>
 }
 
+public struct SSEReconnectPolicy: Sendable {
+    public var initialDelaySeconds: Double
+    public var maxDelaySeconds: Double
+    public var multiplier: Double
+    public var jitterFraction: Double
+    public var maxAttempts: Int?
+    public var reconnectOnCompletion: Bool
+
+    public init(
+        initialDelaySeconds: Double,
+        maxDelaySeconds: Double,
+        multiplier: Double,
+        jitterFraction: Double,
+        maxAttempts: Int? = nil,
+        reconnectOnCompletion: Bool = true
+    ) {
+        self.initialDelaySeconds = initialDelaySeconds
+        self.maxDelaySeconds = maxDelaySeconds
+        self.multiplier = multiplier
+        self.jitterFraction = jitterFraction
+        self.maxAttempts = maxAttempts
+        self.reconnectOnCompletion = reconnectOnCompletion
+    }
+
+    public static let `default` = SSEReconnectPolicy(
+        initialDelaySeconds: 0.25,
+        maxDelaySeconds: 4.0,
+        multiplier: 1.6,
+        jitterFraction: 0.2,
+        maxAttempts: 8,
+        reconnectOnCompletion: true
+    )
+
+    public static let forever = SSEReconnectPolicy(
+        initialDelaySeconds: 0.25,
+        maxDelaySeconds: 4.0,
+        multiplier: 1.6,
+        jitterFraction: 0.2,
+        maxAttempts: nil,
+        reconnectOnCompletion: true
+    )
+
+    fileprivate func delaySeconds(forAttempt attempt: Int) -> Double {
+        guard attempt > 0 else { return 0 }
+        let base = min(maxDelaySeconds, initialDelaySeconds * pow(multiplier, Double(attempt - 1)))
+        if jitterFraction <= 0 { return max(0, base) }
+        let jitter = base * jitterFraction * Double.random(in: -1...1)
+        return max(0, base + jitter)
+    }
+}
+
+public extension OpenCleanerClientProtocol {
+    /// Wraps `progressStream()` with a retry loop to tolerate daemon restarts / disconnects.
+    ///
+    /// Notes:
+    /// - Resets backoff after any successfully received event.
+    /// - By default, also retries if the underlying stream completes without error (since SSE streams are expected to be long-lived).
+    func progressStream(reconnect policy: SSEReconnectPolicy) -> AsyncThrowingStream<ProgressEvent, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                var attempt = 0
+                var lastError: Error?
+
+                while !Task.isCancelled {
+                    do {
+                        for try await evt in progressStream() {
+                            attempt = 0
+                            lastError = nil
+                            continuation.yield(evt)
+                        }
+
+                        if !policy.reconnectOnCompletion {
+                            continuation.finish()
+                            return
+                        }
+                    } catch is CancellationError {
+                        continuation.finish()
+                        return
+                    } catch {
+                        lastError = error
+                    }
+
+                    attempt += 1
+                    if let maxAttempts = policy.maxAttempts, attempt > maxAttempts {
+                        if let lastError {
+                            continuation.finish(throwing: lastError)
+                        } else {
+                            continuation.finish()
+                        }
+                        return
+                    }
+
+                    let delay = policy.delaySeconds(forAttempt: attempt)
+                    let safeDelay: Double = (delay.isFinite && delay >= 0) ? delay : 0
+                    let effectiveDelay = max(safeDelay, 0.01) // avoid hot-looping reconnects
+
+                    let maxDelaySeconds = Double(UInt64.max) / 1_000_000_000
+                    let clamped = min(effectiveDelay, maxDelaySeconds)
+                    let nanos = UInt64(clamped * 1_000_000_000)
+                    try? await Task.sleep(nanoseconds: nanos)
+                }
+
+                continuation.finish()
+            }
+
+            continuation.onTermination = { _ in
+                task.cancel()
+            }
+        }
+    }
+}
+
 /// Temporary dev client that shells out to the Go CLI.
 ///
 /// This is intentionally a stopgap until the Swift side implements HTTP/JSON over a Unix domain socket.

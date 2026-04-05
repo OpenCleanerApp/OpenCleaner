@@ -50,3 +50,44 @@ import Testing
     let evt = parseSSEDataEvent(events[0])
     #expect(evt?.message == "café")
 }
+
+private final class FakeProgressClient: OpenCleanerClientProtocol, @unchecked Sendable {
+    private let lock = NSLock()
+    private var calls = 0
+
+    func status() async throws -> DaemonStatus { throw OpenCleanerError.invalidUTF8 }
+    func scan() async throws -> ScanResult { throw OpenCleanerError.invalidUTF8 }
+    func clean(request: CleanRequest) async throws -> CleanResult { throw OpenCleanerError.invalidUTF8 }
+
+    func progressStream() -> AsyncThrowingStream<ProgressEvent, Error> {
+        lock.lock()
+        calls += 1
+        let n = calls
+        lock.unlock()
+
+        return AsyncThrowingStream { continuation in
+            continuation.yield(ProgressEvent(type: n == 1 ? "one" : "two"))
+            continuation.finish()
+        }
+    }
+}
+
+@Test func progressStream_reconnectsAfterCompletion() async throws {
+    let client = FakeProgressClient()
+    let policy = SSEReconnectPolicy(
+        initialDelaySeconds: 0,
+        maxDelaySeconds: 0,
+        multiplier: 1,
+        jitterFraction: 0,
+        maxAttempts: 3,
+        reconnectOnCompletion: true
+    )
+
+    var got: [String] = []
+    for try await evt in client.progressStream(reconnect: policy) {
+        got.append(evt.type)
+        if got.count == 2 { break }
+    }
+
+    #expect(got == ["one", "two"])
+}

@@ -92,7 +92,7 @@ final class AppModel: ObservableObject {
         progressTask = Task.detached { [weak self, client] in
             var sawStart = false
             do {
-                for try await evt in client.progressStream() {
+                for try await evt in client.progressStream(reconnect: .default) {
                     if evt.type == expectedStartType { sawStart = true }
                     await MainActor.run { self?.progressEvent = evt }
                     if sawStart && evt.type == "complete" { break }
