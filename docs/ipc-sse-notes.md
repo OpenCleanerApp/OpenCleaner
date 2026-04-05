@@ -1,9 +1,11 @@
 # OpenCleaner — IPC + SSE notes
 
-## Recommended job model
-- `POST /api/v1/scan` (starts job) → returns result or job id (TBD)
-- `GET /api/v1/progress/stream` (SSE) streams snapshot + deltas
-- Prefer: create job via REST; subscribe via SSE (so reconnect does not restart work).
+## Current behavior (MVP) + recommended evolution
+- `POST /api/v1/scan` runs a scan synchronously and returns `ScanResult` (JSON).
+- `POST /api/v1/clean` runs cleaning synchronously and returns `CleanResult` (JSON).
+- `GET /api/v1/progress/stream` (SSE) streams `ProgressEvent` updates for the currently running scan/clean
+  (and replays the last event to new subscribers, if available).
+- Future (not implemented yet): job IDs + per-job progress streams so reconnect does not restart work.
 
 ## SSE implementation rules (Go net/http)
 - Headers:
@@ -31,3 +33,16 @@
 - Unix socket is best isolation (file perms 0600).
 - Swift client: implemented via Network.framework (`NWConnection`) speaking HTTP/1.1 over a Unix domain socket (see `app/Packages/OpenCleanerClient`).
 - If TCP loopback is ever used: bind to 127.0.0.1 only + require bearer token (store in Keychain).
+
+## Socket path defaults & overrides
+- Default socket path: `/tmp/opencleaner.<uid>.sock` (per-user to avoid collisions).
+  - Go: `transport.DefaultSocketPath()`
+  - Swift: uses `getuid()` for the same default
+- Overrides:
+  - CLI: `opencleaner --socket=/path/to.sock ...`
+  - Daemon (manual): `opencleanerd -socket=/path/to.sock`
+  - App: Settings → Daemon → Socket path
+
+## Debugging / observability
+- Go SSE debug logs: set `OPENCLEANER_DEBUG=1` or `OPENCLEANER_DEBUG_SSE=1` to log subscribe/unsubscribe and write/ping errors.
+- Swift SSE lifecycle logs: OSLog `subsystem: OpenCleanerClient`, `category: sse` (view in Console.app or `log stream`).

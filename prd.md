@@ -370,6 +370,7 @@ type CleanerPlugin interface {
 - **Menu Bar App** with optional main window
 - Click menu bar icon → quick summary dropdown
 - "Open Full View" → detailed scan results window
+- Settings includes **Daemon / Socket path** override for diagnostics and non-default installs
 
 ## User Flow — First Launch
 
@@ -705,7 +706,22 @@ func (e *Engine) Scan(ctx context.Context) (<-chan ScanItem, error) {
 }
 ```
 
-## API Contract (Daemon — v1)
+## API Contract (Daemon — v1, current MVP)
+
+All endpoints are served over HTTP/1.1 on a Unix domain socket (default: `/tmp/opencleaner.<uid>.sock`).
+
+### Status
+
+```
+GET /api/v1/status
+
+Response (JSON):
+{
+  "ok": true,
+  "version": "dev",
+  "socket_path": "/tmp/opencleaner.<uid>.sock"
+}
+```
 
 ### Scan
 
@@ -713,7 +729,8 @@ func (e *Engine) Scan(ctx context.Context) (<-chan ScanItem, error) {
 POST /api/v1/scan
 Content-Type: application/json
 
-Response: ScanResult (JSON)
+Request body: {} (ignored by server; clients may send empty JSON)
+Response: ScanResult (JSON, see `go/pkg/types`)
 ```
 
 ### Clean
@@ -724,11 +741,14 @@ Content-Type: application/json
 
 Request Body:
 {
-    "item_ids": ["id1", "id2"],
-    "strategy": "trash" | "delete"
+  "item_ids": ["id1", "id2"],
+  "strategy": "trash" | "delete",
+  "dry_run": true,
+  "unsafe": true,
+  "force": true
 }
 
-Response: CleanResult (JSON)
+Response: CleanResult (JSON, see `go/pkg/types`)
 ```
 
 ### Progress Stream (SSE)
@@ -738,17 +758,21 @@ GET /api/v1/progress/stream
 Accept: text/event-stream
 
 Events:
-  data: {"type": "scanning", "current": "/path/...", "progress": 0.65}
-  data: {"type": "cleaning", "current": "/path/...", "progress": 0.78}
-  data: {"type": "complete", "result": {...}}
+  data: {"type":"scanning","current":"/path/...","progress":0.65}
+  data: {"type":"message","message":"...","errors":["..."]}
+  : ping
 ```
 
-## Logging
+Notes:
+- Server sends heartbeat comments (`: ping\n\n`) periodically.
+- Go emits SSE lifecycle/debug logs when `OPENCLEANER_DEBUG=1` or `OPENCLEANER_DEBUG_SSE=1`.
+- Swift client logs SSE lifecycle via OSLog (`subsystem: OpenCleanerClient`, category: `sse`).
 
-- **Library:** `go.uber.org/zap` (structured JSON logging)
-- **Log location:** `~/.opencleaner/logs/`
-- **Audit log:** Append-only, records every delete with timestamp, path, size
-- **Rotation:** 10MB per file, keep 5 files
+## Logging (current MVP)
+
+- Daemon operational logs: stdout/stderr (structured logging + rotation not implemented yet).
+- Audit log: append-only JSON lines at `~/.opencleaner/logs/audit.log`
+  - Returned to clients as `CleanResult.audit_log_path`.
 
 ---
 
@@ -858,58 +882,21 @@ OpenCleaner/
     └── Assets.xcassets
 ```
 
-## Daemon Communication
+## Daemon Communication (current implementation)
+
+The macOS app uses the Swift package `app/Packages/OpenCleanerClient` for daemon + CLI communication.
+
+- Default socket path: `OpenCleanerDefaults.defaultSocketPath()` → `/tmp/opencleaner.<uid>.sock` (Swift uses `getuid()`).
+- Socket override: SwiftUI Settings → Daemon → Socket path.
+- Daemon client transport: Network.framework (`NWConnection`) speaking HTTP/1.1 over a Unix domain socket.
+
+Minimal usage:
 
 ```swift
-/// Communicates with opencleanerd via Unix domain socket / HTTP
-actor DaemonClient {
-    private let socketPath = "/tmp/opencleaner.sock"
-    private let baseURL = "http+unix:///tmp/opencleaner.sock"
-    private let session: URLSession
+import OpenCleanerClient
 
-    init() {
-        let config = URLSessionConfiguration.default
-        config.httpAdditionalHeaders = ["Content-Type": "application/json"]
-        self.session = URLSession(configuration: config)
-    }
-
-    /// Trigger a full system scan
-    func scan() async throws -> ScanResult {
-        let (data, _) = try await request(.post, path: "/api/v1/scan")
-        return try JSONDecoder().decode(ScanResult.self, from: data)
-    }
-
-    /// Execute cleaning on selected items
-    func clean(itemIDs: [String], strategy: CleanStrategy = .trash) async throws -> CleanResult {
-        let body = CleanRequest(itemIDs: itemIDs, strategy: strategy)
-        let (data, _) = try await request(.post, path: "/api/v1/clean", body: body)
-        return try JSONDecoder().decode(CleanResult.self, from: data)
-    }
-
-    /// Subscribe to real-time progress updates via SSE
-    func progressStream() -> AsyncStream<ProgressEvent> {
-        AsyncStream { continuation in
-            let task = Task {
-                let (bytes, _) = try await session.bytes(for: urlRequest(.get, path: "/api/v1/progress/stream"))
-                for try await line in bytes.lines {
-                    guard line.hasPrefix("data: ") else { continue }
-                    let json = Data(line.dropFirst(6).utf8)
-                    if let event = try? JSONDecoder().decode(ProgressEvent.self, from: json) {
-                        continuation.yield(event)
-                    }
-                }
-                continuation.finish()
-            }
-            continuation.onTermination = { _ in task.cancel() }
-        }
-    }
-
-    /// Check daemon health
-    func status() async throws -> DaemonStatus {
-        let (data, _) = try await request(.get, path: "/api/v1/status")
-        return try JSONDecoder().decode(DaemonStatus.self, from: data)
-    }
-}
+let client = OpenCleanerDaemonClient(socketPath: OpenCleanerDefaults.defaultSocketPath())
+let st = try await client.status()
 ```
 
 ## Key ViewModels

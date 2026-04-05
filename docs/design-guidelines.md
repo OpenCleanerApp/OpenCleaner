@@ -188,6 +188,8 @@ States:
   - “Retry”
   - “Open Full View” (to show diagnostics)
   - “Copy Diagnostics”
+- Diagnostics MUST display the **configured** socket path (Settings → Daemon → Socket path),
+  not a hardcoded default, so users can resolve non-default installs quickly.
 - Always preserve last known scan results (if safe), but disable cleaning if engine not available.
 
 ### 6.3 Partial failures during clean

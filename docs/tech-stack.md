@@ -1,31 +1,26 @@
-# OpenCleaner — Tech stack (bootstrap)
+# OpenCleaner — Tech stack (current)
 
-## Locked by PRD
-- Go engine (>=1.22)
+## Current implementation (verified)
+- Go daemon + CLI (see `go/go.mod` for the required Go toolchain version)
 - SwiftUI macOS app (target macOS 14+)
-- IPC: HTTP/JSON over Unix domain socket
-- Plugins later: WASM via wazero
-- Updates: Sparkle (app), Homebrew (CLI)
+- IPC: HTTP/JSON over a Unix domain socket
+  - Default socket path is per-user: `/tmp/opencleaner.<uid>.sock`
 
-## Recommended repo layout (monorepo)
+## Repo layout (as in this repository)
 - `go/` (Go module)
   - `cmd/opencleanerd` (daemon)
   - `cmd/opencleaner` (CLI)
-  - `internal/` (safety, scanners, cleaner, transport, stream)
-- `app/` (Xcode project) + `app/Packages/OpenCleanerClient` (SPM library)
-- `launchd/` (LaunchAgent plist)
-- `scripts/` (build/install helpers)
-- `docs/` (this folder)
+  - `internal/` (engine, safety, cleaner, transport, stream, audit)
+  - `pkg/types` (shared API types)
+- `app/`
+  - `OpenCleanerApp/` (SwiftUI app)
+  - `Packages/OpenCleanerClient/` (SPM client library: daemon + CLI clients)
+- `docs/` (documentation)
+- `plans/` (planning notes)
 
-## Tooling (minimal deps)
-- Go: stdlib + `go.uber.org/zap` (PRD)
-- Swift: SwiftUI + (likely) Network.framework for unix-socket HTTP
-- CI: GitHub Actions macOS runner (Go tests + `xcodebuild` build)
-
-## Known hard problem
-Swift `URLSession` does not natively support HTTP-over-unix sockets. Plan options:
-1) Network.framework (`NWConnection` to `.unix(path)`) + small HTTP client/parser
-2) Custom `URLProtocol` / socket adapter (more complex)
-3) Fall back to TCP 127.0.0.1 + token auth (simpler, but violates PRD lock)
-
-Default: pursue (1) to honor PRD.
+## Tooling / dependencies (current)
+- Go: standard library (daemon uses stdlib `log` for debug prints; audit log is written by `internal/audit`)
+- Swift: SwiftUI + Network.framework (`NWConnection`) for HTTP-over-unix-socket
+- Observability:
+  - Go SSE logs gated by `OPENCLEANER_DEBUG` or `OPENCLEANER_DEBUG_SSE`
+  - Swift SSE lifecycle logs via OSLog (`subsystem: OpenCleanerClient`, `category: sse`)

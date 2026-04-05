@@ -57,6 +57,27 @@
         </div>
 
         <div class="group">
+          <div style="font-weight:800;">Daemon</div>
+          <div class="row">
+            <div>
+              <div style="font-weight:650;">Socket path</div>
+              <div class="muted">Default: <span class="kbd">/tmp/opencleaner.&lt;uid&gt;.sock</span></div>
+            </div>
+            <input style="width:360px;" value="/tmp/opencleaner.&lt;uid&gt;.sock" />
+          </div>
+          <div class="row">
+            <div>
+              <div style="font-weight:650;">Status</div>
+              <div class="muted">Checks whether the daemon is reachable.</div>
+            </div>
+            <button class="btn">Check status</button>
+          </div>
+          <div class="muted" style="font-size:12px; margin-top:8px;">
+            Annotation: When offline, show the configured socket path in diagnostics and link here.
+          </div>
+        </div>
+
+        <div class="group">
           <div style="font-weight:800;">Cleaning</div>
           <div class="row">
             <div>
