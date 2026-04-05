@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -19,11 +20,17 @@ import (
 
 	"github.com/opencleaner/opencleaner/internal/audit"
 	"github.com/opencleaner/opencleaner/internal/engine"
+	"github.com/opencleaner/opencleaner/internal/rules"
 	"github.com/opencleaner/opencleaner/internal/stream"
 	"github.com/opencleaner/opencleaner/pkg/types"
 )
 
 func startTestDaemon(t *testing.T) (socketPath string, broker *stream.Broker) {
+	socketPath, _, broker = startTestDaemonWithRules(t, nil)
+	return socketPath, broker
+}
+
+func startTestDaemonWithRules(t *testing.T, ruleSet []rules.Rule) (socketPath string, tmp string, broker *stream.Broker) {
 	t.Helper()
 
 	if runtime.GOOS == "windows" {
@@ -43,7 +50,7 @@ func startTestDaemon(t *testing.T) (socketPath string, broker *stream.Broker) {
 
 	socketPath = filepath.Join(tmp, "opencleaner.sock")
 	broker = stream.NewBroker()
-	eng := engine.New(nil, broker, audit.NewLogger(filepath.Join(tmp, "audit.log")))
+	eng := engine.New(ruleSet, broker, audit.NewLogger(filepath.Join(tmp, "audit.log")))
 	srv := NewServer(eng, broker, socketPath, "test")
 
 	ln, err := ListenUnixSocket(socketPath)
@@ -77,7 +84,7 @@ func startTestDaemon(t *testing.T) (socketPath string, broker *stream.Broker) {
 		}
 	})
 
-	return socketPath, broker
+	return socketPath, tmp, broker
 }
 
 func TestRealWire_StatusOverUnixSocket(t *testing.T) {
@@ -193,6 +200,103 @@ func parseRawHTTPHeaders(t *testing.T, hdr []byte) (int, map[string]string) {
 		h[k] = v
 	}
 	return code, h
+}
+
+func TestRealWire_CleanBlocksExcludedPaths(t *testing.T) {
+	socketPath, tmp, _ := startTestDaemonWithRules(t, []rules.Rule{})
+
+	target := filepath.Join(tmp, "target")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "a.txt"), []byte("hello"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Start a second daemon with a rule pointing at our target.
+	socketPath, _, _ = startTestDaemonWithRules(t, []rules.Rule{
+		{
+			ID:       "test-target",
+			Name:     "Test Target",
+			Path:     target,
+			Category: types.CategorySystem,
+			Safety:   types.SafetySafe,
+			Desc:     "test data",
+		},
+	})
+
+	client := NewUnixSocketHTTPClient(socketPath)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Run scan to populate lastScan.
+	{
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://unix/api/v1/scan", strings.NewReader(`{}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			b, _ := io.ReadAll(resp.Body)
+			t.Fatalf("expected 200, got %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+		}
+		var scan types.ScanResult
+		if err := json.NewDecoder(resp.Body).Decode(&scan); err != nil {
+			t.Fatal(err)
+		}
+		if len(scan.Items) != 1 || scan.Items[0].ID != "test-target" {
+			t.Fatalf("expected 1 item test-target, got %+v", scan.Items)
+		}
+	}
+
+	// Clean should be blocked by exclude_paths.
+	{
+		body := fmt.Sprintf(`{"item_ids":["test-target"],"strategy":"trash","dry_run":true,"exclude_paths":[%q]}`, target)
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://unix/api/v1/clean", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			b, _ := io.ReadAll(resp.Body)
+			t.Fatalf("expected 200, got %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+		}
+		var res types.CleanResult
+		if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+			t.Fatal(err)
+		}
+		if res.CleanedCount != 0 || res.CleanedSize != 0 {
+			t.Fatalf("expected cleaned=0, got count=%d size=%d", res.CleanedCount, res.CleanedSize)
+		}
+		if len(res.FailedItems) != 1 || res.FailedItems[0] != "test-target" {
+			t.Fatalf("expected failed_items=[test-target], got %+v", res.FailedItems)
+		}
+		if res.AuditLogPath == "" {
+			t.Fatalf("expected audit_log_path")
+		}
+
+		b, err := os.ReadFile(res.AuditLogPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		log := string(b)
+		if !strings.Contains(log, "blocked_exclude") {
+			t.Fatalf("expected blocked_exclude in audit log, got: %s", log)
+		}
+		if !strings.Contains(log, target) {
+			t.Fatalf("expected target path in audit log, got: %s", log)
+		}
+	}
 }
 
 func readChunk(r *bufio.Reader, maxBytes int) ([]byte, error) {
