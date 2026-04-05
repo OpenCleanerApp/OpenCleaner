@@ -73,6 +73,14 @@ Exclude paths (never touch):
 ./bin/opencleaner --socket="$SOCK" clean <id1,id2> --dry-run --exclude=~/Library/Caches/Homebrew
 ```
 
+## E2E tests (macOS)
+The E2E suite runs the real `opencleanerd` + `opencleaner` binaries against a temporary `$HOME` and a short unix socket path, and stubs `launchctl` for LaunchAgent lifecycle coverage.
+
+```bash
+cd go
+go test ./... -tags=e2e -count=1
+```
+
 ## Quickstart (SwiftUI app)
 - Open `app/OpenCleanerApp` in Xcode.
 - Run the app.
