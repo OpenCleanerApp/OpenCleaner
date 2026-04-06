@@ -12,6 +12,12 @@ func TestXcodeScannerID(t *testing.T) {
 	if s.ID() != "xcode" {
 		t.Errorf("expected 'xcode', got %q", s.ID())
 	}
+	if s.Name() == "" {
+		t.Error("expected non-empty name")
+	}
+	if s.Category() == "" {
+		t.Error("expected non-empty category")
+	}
 }
 
 func TestXcodeScannerFindsKnownPaths(t *testing.T) {

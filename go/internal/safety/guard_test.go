@@ -147,3 +147,104 @@ func TestSafeRemoveRemovesRegularFile(t *testing.T) {
 		t.Fatalf("expected file removed, got: %v", err)
 	}
 }
+
+func TestSafeRemoveRemovesDirectory(t *testing.T) {
+	tmp := t.TempDir()
+	dir := filepath.Join(tmp, "subdir")
+	os.MkdirAll(dir, 0o755)
+	os.WriteFile(filepath.Join(dir, "inner.txt"), []byte("x"), 0o600)
+
+	if err := SafeRemove(dir, false); err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if _, err := os.Lstat(dir); !os.IsNotExist(err) {
+		t.Fatalf("expected dir removed, got: %v", err)
+	}
+}
+
+func TestSafeRemoveProtectedPath(t *testing.T) {
+	err := SafeRemove("/System/Library", false)
+	if err == nil {
+		t.Fatal("expected error for protected path")
+	}
+}
+
+func TestSafeRemoveNonExistent(t *testing.T) {
+	err := SafeRemove("/tmp/nonexistent-test-xyz", false)
+	if err == nil {
+		t.Fatal("expected error for nonexistent path")
+	}
+}
+
+func TestResolveForNonSymlinkRegularFile(t *testing.T) {
+	tmp := t.TempDir()
+	p := filepath.Join(tmp, "regular.txt")
+	os.WriteFile(p, []byte("x"), 0o600)
+
+	resolved, isLink, err := ResolveForNonSymlink(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isLink {
+		t.Error("expected not a symlink")
+	}
+	// On macOS, /var -> /private/var, so resolved may differ from p.
+	if filepath.Base(resolved) != "regular.txt" {
+		t.Errorf("expected resolved to end with regular.txt, got %q", resolved)
+	}
+}
+
+func TestResolveForNonSymlinkNonExistent(t *testing.T) {
+	_, _, err := ResolveForNonSymlink("/tmp/nonexistent-resolve-xyz")
+	if err == nil {
+		t.Fatal("expected error for nonexistent path")
+	}
+}
+
+func TestIsProtectedPath(t *testing.T) {
+	tests := []struct {
+		path string
+		want bool
+	}{
+		{"/System", true},
+		{"/System/Library", true},
+		{"/usr", true},
+		{"/usr/bin", true},
+		{"/bin", true},
+		{"/sbin", true},
+		{"/tmp/safe", false},
+		{"/var/folders/abc", false},
+	}
+	for _, tt := range tests {
+		got := IsProtectedPath(tt.path)
+		if got != tt.want {
+			t.Errorf("IsProtectedPath(%q) = %v, want %v", tt.path, got, tt.want)
+		}
+	}
+}
+
+func TestHasPathPrefix(t *testing.T) {
+	tests := []struct {
+		path, prefix string
+		want         bool
+	}{
+		{"/System/Library", "/System", true},
+		{"/System", "/System", true},
+		{"/SystemExtra", "/System", false},
+		{"/usr/local/bin", "/usr", true},
+		{"/tmp/test", "/tmp", true},
+	}
+	for _, tt := range tests {
+		got := hasPathPrefix(tt.path, tt.prefix)
+		if got != tt.want {
+			t.Errorf("hasPathPrefix(%q, %q) = %v, want %v", tt.path, tt.prefix, got, tt.want)
+		}
+	}
+}
+
+func TestValidatePathSafetyTraversal(t *testing.T) {
+	err := ValidatePathSafety("/tmp/test/../../../etc/passwd")
+	if err == nil {
+		t.Error("expected error for traversal pattern")
+	}
+}

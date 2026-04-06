@@ -12,6 +12,12 @@ func TestRustScannerID(t *testing.T) {
 	if s.ID() != "rust" {
 		t.Errorf("expected 'rust', got %q", s.ID())
 	}
+	if s.Name() == "" {
+		t.Error("expected non-empty name")
+	}
+	if s.Category() == "" {
+		t.Error("expected non-empty category")
+	}
 }
 
 func TestRustScannerFindsTargetWithCargoToml(t *testing.T) {

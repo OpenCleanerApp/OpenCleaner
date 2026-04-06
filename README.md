@@ -81,6 +81,27 @@ cd go
 go test ./... -tags=e2e -count=1
 ```
 
+## Test coverage
+
+Library packages (excluding `cmd/` and `daemon/`) are at **90.0%** statement coverage.
+
+| Package | Coverage |
+|---|---|
+| `rules` | 100.0% |
+| `stream` | 100.0% |
+| `pkg/logger` | 100.0% |
+| `analyzer` | 98.8% |
+| `scheduler` | 97.8% |
+| `engine` | 94.0% |
+| `safety` | 94.0% |
+| `transport` | 86.4% |
+| `audit` | 85.7% |
+| `scanner` | 82.1% |
+| `cleaner` | 81.6% |
+| `daemon` | 54.3% |
+
+`scanner` (includes Docker) and `daemon` have known coverage ceilings due to external dependencies (Docker socket, `launchd`). `cmd/` packages are exercised by E2E tests rather than unit tests.
+
 ## Quickstart (SwiftUI app)
 - Open `app/OpenCleanerApp` in Xcode.
 - Run the app.

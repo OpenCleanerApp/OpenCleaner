@@ -15,6 +15,9 @@ func TestNodeScannerID(t *testing.T) {
 	if s.Name() != "Node.js" {
 		t.Errorf("expected 'Node.js', got %q", s.Name())
 	}
+	if s.Category() == "" {
+		t.Error("expected non-empty category")
+	}
 }
 
 func TestNodeScannerFindsNodeModules(t *testing.T) {

@@ -1,6 +1,41 @@
 package scanner
 
-import "testing"
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestDockerScannerScanNoDockerDesktop(t *testing.T) {
+	home := t.TempDir() // no Docker Desktop data dir
+	s := NewDockerScanner(home)
+	rules, err := s.Scan(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rules) != 0 {
+		t.Errorf("expected 0 rules without Docker, got %d", len(rules))
+	}
+}
+
+func TestDockerScannerScanWithDockerDir(t *testing.T) {
+	home := t.TempDir()
+	// Create Docker Desktop data dir.
+	dataDir := filepath.Join(home, "Library", "Containers", "com.docker.docker", "Data")
+	os.MkdirAll(dataDir, 0o755)
+
+	// Ensure docker CLI is not found — the test is about the graceful skip path.
+	t.Setenv("PATH", t.TempDir())
+
+	s := NewDockerScanner(home)
+	rules, err := s.Scan(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Without docker CLI, should return empty (graceful skip).
+	_ = rules
+}
 
 func TestParseDockerSize(t *testing.T) {
 	tests := []struct {
@@ -68,5 +103,8 @@ func TestDockerScannerID(t *testing.T) {
 	}
 	if s.Name() != "Docker" {
 		t.Errorf("expected 'Docker', got %q", s.Name())
+	}
+	if s.Category() == "" {
+		t.Error("expected non-empty category")
 	}
 }

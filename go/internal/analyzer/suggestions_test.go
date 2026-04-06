@@ -339,3 +339,34 @@ func itoa(n int) string {
 	}
 	return s
 }
+
+func TestAgeDaysFutureAccess(t *testing.T) {
+	e := New()
+	future := e.now.Add(24 * time.Hour)
+	item := types.ScanItem{LastAccess: &future, Size: 100}
+	days := e.ageDays(item)
+	if days != 0 {
+		t.Errorf("expected 0 days for future access, got %d", days)
+	}
+}
+
+func TestCalcPriorityRiskySafety(t *testing.T) {
+	e := New()
+	item := types.ScanItem{
+		Size:        1 << 20,
+		SafetyLevel: types.SafetyRisky,
+	}
+	p := e.calcPriority(item)
+	if p <= 0 {
+		t.Errorf("expected positive priority for risky item, got %f", p)
+	}
+	// Risky safety should give lower priority than safe
+	safeItem := types.ScanItem{
+		Size:        1 << 20,
+		SafetyLevel: types.SafetySafe,
+	}
+	sp := e.calcPriority(safeItem)
+	if p >= sp {
+		t.Errorf("risky priority %f should be less than safe priority %f", p, sp)
+	}
+}

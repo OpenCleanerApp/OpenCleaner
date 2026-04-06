@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -11,6 +12,12 @@ func TestPythonScannerID(t *testing.T) {
 	s := NewPythonScanner("/home", nil)
 	if s.ID() != "python" {
 		t.Errorf("expected 'python', got %q", s.ID())
+	}
+	if s.Name() == "" {
+		t.Error("expected non-empty name")
+	}
+	if s.Category() == "" {
+		t.Error("expected non-empty category")
 	}
 }
 
@@ -160,5 +167,25 @@ func TestPythonScannerFindsPipCache(t *testing.T) {
 	}
 	if !found {
 		t.Error("pip cache not found")
+	}
+}
+
+func TestPythonScanVenvNotVirtualenv(t *testing.T) {
+	home := t.TempDir()
+	project := filepath.Join(home, "proj")
+	// Create a venv/ dir that is NOT a virtualenv (no pyvenv.cfg).
+	os.MkdirAll(filepath.Join(project, "venv"), 0o700)
+	// Create a .venv/ dir that is NOT a virtualenv.
+	os.MkdirAll(filepath.Join(project, ".venv"), 0o700)
+
+	s := NewPythonScanner(home, []string{home})
+	rules, err := s.Scan(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rules {
+		if strings.Contains(r.ID, "venv") {
+			t.Errorf("should not find venv without pyvenv.cfg: %s", r.ID)
+		}
 	}
 }
