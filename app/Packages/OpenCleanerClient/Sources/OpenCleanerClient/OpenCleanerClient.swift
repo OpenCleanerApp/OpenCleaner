@@ -151,6 +151,24 @@ public struct CleanResult: Codable, Sendable {
     }
 }
 
+public struct UndoResult: Codable, Sendable {
+    public let restoredCount: Int
+    public let restoredSize: Int64
+    public let failedItems: [String]
+
+    public init(restoredCount: Int, restoredSize: Int64, failedItems: [String]) {
+        self.restoredCount = restoredCount
+        self.restoredSize = restoredSize
+        self.failedItems = failedItems
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case restoredCount = "restored_count"
+        case restoredSize = "restored_size"
+        case failedItems = "failed_items"
+    }
+}
+
 public struct DaemonStatus: Codable, Sendable {
     public let ok: Bool
     public let version: String
@@ -209,6 +227,7 @@ public protocol OpenCleanerClientProtocol: Sendable {
     func status() async throws -> DaemonStatus
     func scan() async throws -> ScanResult
     func clean(request: CleanRequest) async throws -> CleanResult
+    func undo() async throws -> UndoResult
     func progressStream() -> AsyncThrowingStream<ProgressEvent, Error>
 }
 
@@ -376,6 +395,10 @@ public struct OpenCleanerCLIClient: OpenCleanerClientProtocol {
         return try await runJSON(args, as: CleanResult.self)
     }
 
+    public func undo() async throws -> UndoResult {
+        try await runJSON(["--socket=\(socketPath)", "--json", "undo"], as: UndoResult.self)
+    }
+
     public func progressStream() -> AsyncThrowingStream<ProgressEvent, Error> {
         AsyncThrowingStream { $0.finish() }
     }
@@ -483,6 +506,10 @@ public struct OpenCleanerDaemonClient: OpenCleanerClientProtocol {
         let enc = JSONEncoder()
         let body = try enc.encode(request)
         return try await requestJSON(method: "POST", path: "/api/v1/clean", body: body, as: CleanResult.self)
+    }
+
+    public func undo() async throws -> UndoResult {
+        try await requestJSON(method: "POST", path: "/api/v1/undo", body: nil, as: UndoResult.self)
     }
 
     public func progressStream() -> AsyncThrowingStream<ProgressEvent, Error> {

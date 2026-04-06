@@ -1,0 +1,315 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build & Release
+    runs-on: macos-15
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      # ── Checkout ──
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ── Toolchains ──
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go/go.mod
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      # ── Go: test + build universal binaries ──
+      - name: Go test
+        run: go test ./...
+        working-directory: go
+
+      - name: Build Go binaries (universal)
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          LDFLAGS="-s -w -X main.version=$VERSION"
+
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags="$LDFLAGS" -o opencleaner-arm64 ./cmd/opencleaner
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -ldflags="$LDFLAGS" -o opencleaner-amd64 ./cmd/opencleaner
+          lipo -create -output opencleaner opencleaner-arm64 opencleaner-amd64
+
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags="$LDFLAGS" -o opencleanerd-arm64 ./cmd/opencleanerd
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -ldflags="$LDFLAGS" -o opencleanerd-amd64 ./cmd/opencleanerd
+          lipo -create -output opencleanerd opencleanerd-arm64 opencleanerd-amd64
+        working-directory: go
+
+      # ── Swift: test before release ──
+      - name: Run tests
+        run: |
+          xcodebuild test \
+            -scheme OpenCleaner \
+            -destination 'platform=macOS' \
+            -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO
+        working-directory: app
+
+      # ── Signing certificate ──
+      - name: Install signing certificate
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.DEVELOPER_ID_CERT_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_CERT_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ github.run_id }}
+        run: |
+          CERT_PATH=$RUNNER_TEMP/certificate.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+
+          echo -n "$CERTIFICATE_BASE64" | base64 --decode -o $CERT_PATH
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security import $CERT_PATH -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security list-keychain -d user -s $KEYCHAIN_PATH
+
+      # ── Build Release archive ──
+      - name: Archive
+        run: |
+          xcodebuild archive \
+            -scheme OpenCleaner \
+            -configuration Release \
+            -archivePath build/OpenCleaner.xcarchive \
+            -destination 'generic/platform=macOS' \
+            DEVELOPMENT_TEAM=${{ secrets.APPLE_TEAM_ID }} \
+            OTHER_CODE_SIGN_FLAGS="--keychain $RUNNER_TEMP/app-signing.keychain-db"
+        working-directory: app
+
+      # ── Export app + embed Go binaries ──
+      - name: Export and assemble
+        run: |
+          mkdir -p build/export
+          cp -R app/build/OpenCleaner.xcarchive/Products/Applications/OpenCleaner.app build/export/
+
+          # Embed Go binaries inside .app bundle
+          cp go/opencleaner build/export/OpenCleaner.app/Contents/MacOS/
+          cp go/opencleanerd build/export/OpenCleaner.app/Contents/MacOS/
+
+          # Re-sign embedded binaries
+          IDENTITY="Developer ID Application"
+          KEYCHAIN="$RUNNER_TEMP/app-signing.keychain-db"
+          OPTS="--force --options runtime --timestamp --keychain $KEYCHAIN"
+
+          codesign $OPTS --sign "$IDENTITY" "build/export/OpenCleaner.app/Contents/MacOS/opencleaner"
+          codesign $OPTS --sign "$IDENTITY" "build/export/OpenCleaner.app/Contents/MacOS/opencleanerd"
+          codesign $OPTS --sign "$IDENTITY" --preserve-metadata=entitlements "build/export/OpenCleaner.app"
+          codesign --verify --deep --strict "build/export/OpenCleaner.app"
+
+      # ── Re-sign Sparkle binaries ──
+      - name: Re-sign Sparkle binaries
+        run: |
+          APP="build/export/OpenCleaner.app"
+          SPARKLE="$APP/Contents/Frameworks/Sparkle.framework"
+          IDENTITY="Developer ID Application"
+          KEYCHAIN="$RUNNER_TEMP/app-signing.keychain-db"
+          OPTS="--force --options runtime --timestamp --keychain $KEYCHAIN"
+
+          if [ -d "$SPARKLE" ]; then
+            for XPC in "$SPARKLE/Versions/B/XPCServices/"*.xpc; do
+              codesign $OPTS --sign "$IDENTITY" "$XPC"
+            done
+            codesign $OPTS --sign "$IDENTITY" "$SPARKLE/Versions/B/Autoupdate"
+            codesign $OPTS --sign "$IDENTITY" "$SPARKLE/Versions/B/Updater.app"
+            codesign $OPTS --sign "$IDENTITY" "$SPARKLE"
+            codesign $OPTS --sign "$IDENTITY" --preserve-metadata=entitlements "$APP"
+            codesign --verify --deep --strict "$APP"
+          fi
+
+      # ── Notarize ──
+      - name: Notarize
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          ditto -c -k --keepParent build/export/OpenCleaner.app build/export/OpenCleaner.zip
+
+          SUBMIT_OUTPUT=$(xcrun notarytool submit build/export/OpenCleaner.zip \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_ID_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait --timeout 600 2>&1) || true
+
+          echo "$SUBMIT_OUTPUT"
+
+          SUBMISSION_ID=$(echo "$SUBMIT_OUTPUT" | grep -m1 ' id:' | awk '{print $2}')
+          STATUS=$(echo "$SUBMIT_OUTPUT" | grep ' status:' | tail -1 | awk '{print $2}')
+
+          if [ "$STATUS" != "Accepted" ]; then
+            echo "::error::Notarization failed: $STATUS"
+            xcrun notarytool log "$SUBMISSION_ID" \
+              --apple-id "$APPLE_ID" \
+              --password "$APPLE_ID_PASSWORD" \
+              --team-id "$APPLE_TEAM_ID" || true
+            exit 1
+          fi
+
+          xcrun stapler staple build/export/OpenCleaner.app
+
+      # ── DMG ──
+      - name: Create DMG
+        run: |
+          chmod +x scripts/create-dmg.sh
+          ./scripts/create-dmg.sh build/export/OpenCleaner.app build/export
+
+      # ── Version ──
+      - name: Get version
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      # ── GitHub Release ──
+      - name: Upload to GitHub Release
+        id: release_asset
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          DMG_PATH=$(ls build/export/OpenCleaner-*.dmg)
+          DMG_NAME=$(basename "$DMG_PATH")
+
+          PUBLISHED_DIR="$RUNNER_TEMP/published"
+          mkdir -p "$PUBLISHED_DIR"
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            if gh release view "$TAG" --json assets --jq '.assets[].name' | grep -Fxq "$DMG_NAME"; then
+              echo "==> Asset already exists; reusing"
+            else
+              gh release upload "$TAG" "$DMG_PATH"
+            fi
+          else
+            gh release create "$TAG" "$DMG_PATH" --title "$TAG" --generate-notes
+          fi
+
+          gh release download "$TAG" --pattern "$DMG_NAME" --dir "$PUBLISHED_DIR" --clobber
+          echo "path=$PUBLISHED_DIR/$DMG_NAME" >> "$GITHUB_OUTPUT"
+          echo "name=$DMG_NAME" >> "$GITHUB_OUTPUT"
+
+      # ── SHA-256 ──
+      - name: Compute SHA-256
+        id: sha
+        run: |
+          SHA=$(shasum -a 256 "${{ steps.release_asset.outputs.path }}" | awk '{print $1}')
+          echo "sha256=${SHA}" >> "$GITHUB_OUTPUT"
+
+      # ── Sparkle EdDSA signature ──
+      - name: Download Sparkle tools
+        run: |
+          SPARKLE_VERSION="2.9.1"
+          mkdir -p /tmp/sparkle
+          curl -sL "https://github.com/sparkle-project/Sparkle/releases/download/${SPARKLE_VERSION}/Sparkle-${SPARKLE_VERSION}.tar.xz" \
+            | tar -xJ -C /tmp/sparkle
+
+      - name: Sign DMG with EdDSA
+        id: sign
+        env:
+          SPARKLE_EDDSA_KEY: ${{ secrets.SPARKLE_EDDSA_PRIVATE_KEY }}
+        run: |
+          SIGNATURE=$(echo "$SPARKLE_EDDSA_KEY" | /tmp/sparkle/bin/sign_update "${{ steps.release_asset.outputs.path }}" --ed-key-file - -p)
+          echo "eddsa_signature=${SIGNATURE}" >> "$GITHUB_OUTPUT"
+
+      # ── Release notes ──
+      - name: Build release body
+        id: body
+        run: |
+          BODY_FILE=$RUNNER_TEMP/release_body.md
+
+          if [ -s RELEASE_NOTES.md ]; then
+            cat RELEASE_NOTES.md > "$BODY_FILE"
+          else
+            git tag -l --format='%(contents)' "${{ github.ref_name }}" > "$BODY_FILE"
+          fi
+
+          if [ ! -s "$BODY_FILE" ]; then
+            echo "See assets below." > "$BODY_FILE"
+          fi
+
+          printf '\n---\n**SHA-256:** `%s`\n' "${{ steps.sha.outputs.sha256 }}" >> "$BODY_FILE"
+          echo "path=$BODY_FILE" >> "$GITHUB_OUTPUT"
+
+      - name: Update release metadata
+        run: gh release edit "${GITHUB_REF_NAME}" --title "${GITHUB_REF_NAME}" --notes-file "${{ steps.body.outputs.path }}"
+
+      # ── Homebrew tap update ──
+      - name: Read Homebrew tap version
+        id: tap
+        env:
+          GH_TOKEN: ${{ secrets.TAP_REPO_TOKEN }}
+        run: |
+          CONTENT=$(gh api 'repos/OpenCleanerApp/homebrew-tap/contents/Casks/opencleaner.rb?ref=main' --jq '.content')
+          CURRENT_VERSION=$(printf '%s' "$CONTENT" | base64 --decode | sed -n 's/^ *version "\(.*\)"$/\1/p' | head -1)
+
+          if [ -z "$CURRENT_VERSION" ]; then
+            echo "::warning::Could not read current tap version; skipping update"
+            echo "current_version=${{ steps.version.outputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "current_version=${CURRENT_VERSION}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Update Homebrew tap
+        if: success() && steps.tap.outputs.current_version != steps.version.outputs.version
+        env:
+          GH_TOKEN: ${{ secrets.TAP_REPO_TOKEN }}
+        run: |
+          cat > "$RUNNER_TEMP/dispatch.json" <<EOF
+          {
+            "event_type": "update-cask",
+            "client_payload": {
+              "version": "${{ steps.version.outputs.version }}",
+              "sha256": "${{ steps.sha.outputs.sha256 }}",
+              "url": "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/${{ steps.release_asset.outputs.name }}"
+            }
+          }
+          EOF
+          gh api repos/OpenCleanerApp/homebrew-tap/dispatches --method POST --input "$RUNNER_TEMP/dispatch.json"
+
+      # ── Sparkle appcast ──
+      - name: Update appcast
+        if: success()
+        run: |
+          DMG_PATH="${{ steps.release_asset.outputs.path }}"
+          DMG_NAME="${{ steps.release_asset.outputs.name }}"
+          VERSION="${{ steps.version.outputs.version }}"
+          DMG_SIZE=$(stat -f%z "$DMG_PATH")
+          SIGNATURE="${{ steps.sign.outputs.eddsa_signature }}"
+          PUB_DATE=$(date -R)
+          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/${DMG_NAME}"
+
+          ITEM="    <item>\n      <title>Version ${VERSION}</title>\n      <pubDate>${PUB_DATE}</pubDate>\n      <sparkle:version>${VERSION}</sparkle:version>\n      <sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>\n      <enclosure\n        url=\"${DOWNLOAD_URL}\"\n        sparkle:edSignature=\"${SIGNATURE}\"\n        length=\"${DMG_SIZE}\"\n        type=\"application/octet-stream\"/>\n    </item>"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git fetch origin gh-pages || { echo "No gh-pages branch; skipping appcast update"; exit 0; }
+          git checkout gh-pages
+
+          if [ -f appcast.xml ]; then
+            if ! grep -q "<sparkle:version>${VERSION}</sparkle:version>" appcast.xml; then
+              sed -i '' "s|  </channel>|${ITEM}\n  </channel>|" appcast.xml
+              git add appcast.xml
+              if ! git diff --cached --quiet; then
+                git commit -m "chore: update appcast for v${VERSION}"
+                git push origin gh-pages
+              fi
+            fi
+          fi
+
+          git checkout -
+
+      # ── Cleanup ──
+      - name: Cleanup keychain
+        if: always()
+        run: security delete-keychain $RUNNER_TEMP/app-signing.keychain-db 2>/dev/null || true
