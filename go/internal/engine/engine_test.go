@@ -179,8 +179,17 @@ func TestScanRejectsInvalidScannerRule(t *testing.T) {
 		SafetyNote: "test",
 		Desc:       "test",
 	}}})
-	if _, err := eng.Scan(context.Background()); err == nil {
-		t.Fatal("expected error")
+	res, err := eng.Scan(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected hard error: %v", err)
+	}
+	if len(res.Warnings) == 0 {
+		t.Fatal("expected warning for invalid scanner rule")
+	}
+	for _, it := range res.Items {
+		if it.ID == "dyn" {
+			t.Fatal("invalid rule should not appear in items")
+		}
 	}
 }
 

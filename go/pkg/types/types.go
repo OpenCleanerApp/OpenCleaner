@@ -35,6 +35,16 @@ type ScanResult struct {
 	Items           []ScanItem         `json:"items"`
 	ScanDurationMs  int64              `json:"scan_duration_ms"`
 	CategorizedSize map[Category]int64 `json:"categorized_size"`
+	Suggestions     []Suggestion       `json:"suggestions,omitempty"`
+	Warnings        []string           `json:"warnings,omitempty"`
+}
+
+type Suggestion struct {
+	ItemID      string      `json:"item_id"`
+	Message     string      `json:"message"`
+	Priority    float64     `json:"priority"`
+	Rationale   string      `json:"rationale"`
+	SafetyLevel SafetyLevel `json:"safety_level"`
 }
 
 type CleanStrategy string

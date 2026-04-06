@@ -14,6 +14,7 @@ type Rule struct {
 	Safety     types.SafetyLevel
 	SafetyNote string
 	Desc       string
+	PresetSize *int64 // if set, engine uses this instead of walking the path for size
 }
 
 // Scanner is a dynamic scan source that discovers targets at runtime.

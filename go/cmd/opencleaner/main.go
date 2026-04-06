@@ -140,6 +140,45 @@ func main() {
 			usage()
 			os.Exit(2)
 		}
+	case "schedule":
+		if len(args) < 2 {
+			usage()
+			os.Exit(2)
+		}
+		sub := args[1]
+		switch sub {
+		case "status":
+			var st map[string]any
+			doJSON(client, http.MethodGet, baseURL+"/api/v1/scheduler", nil, &st)
+			print(jsonOut, st)
+		case "set":
+			// schedule set --interval=daily --time=03:00 [--day=1] [--notify]
+			cfg := map[string]any{"enabled": true, "interval": "daily", "time": "03:00"}
+			for _, a := range args[2:] {
+				switch {
+				case strings.HasPrefix(a, "--interval="):
+					cfg["interval"] = strings.TrimPrefix(a, "--interval=")
+				case strings.HasPrefix(a, "--time="):
+					cfg["time"] = strings.TrimPrefix(a, "--time=")
+				case strings.HasPrefix(a, "--day="):
+					var day int
+					fmt.Sscanf(strings.TrimPrefix(a, "--day="), "%d", &day)
+					cfg["day"] = day
+				case a == "--notify":
+					cfg["notify"] = true
+				}
+			}
+			var st map[string]any
+			doJSON(client, http.MethodPut, baseURL+"/api/v1/scheduler", cfg, &st)
+			print(jsonOut, st)
+		case "disable":
+			var st map[string]any
+			doJSON(client, http.MethodDelete, baseURL+"/api/v1/scheduler", nil, &st)
+			print(jsonOut, st)
+		default:
+			usage()
+			os.Exit(2)
+		}
 	default:
 		usage()
 		os.Exit(2)
@@ -201,6 +240,25 @@ func print(jsonOut bool, v any) {
 		for _, it := range t.Items {
 			fmt.Printf("- %s (%s): %d bytes [%s]\n", it.ID, it.Path, it.Size, it.SafetyLevel)
 		}
+		if len(t.Suggestions) > 0 {
+			fmt.Println("\nSuggestions:")
+			for _, s := range t.Suggestions {
+				icon := "💡"
+				switch {
+				case s.Priority >= 0.8:
+					icon = "⚡"
+				case s.Priority >= 0.5:
+					icon = "🧹"
+				}
+				fmt.Printf("  %s %s [priority: %.2f]\n", icon, s.Message, s.Priority)
+			}
+		}
+		if len(t.Warnings) > 0 {
+			fmt.Println("\nWarnings:")
+			for _, w := range t.Warnings {
+				fmt.Printf("  ⚠️  %s\n", w)
+			}
+		}
 	case types.CleanResult:
 		fmt.Printf("cleaned=%d items, %d bytes; failed=%d; audit=%s\n", t.CleanedCount, t.CleanedSize, len(t.FailedItems), t.AuditLogPath)
 		if len(t.FailedItems) > 0 {
@@ -224,6 +282,9 @@ func usage() {
 	fmt.Println("  opencleaner [--socket=...] [--json] scan")
 	fmt.Println("  opencleaner [--socket=...] [--json] clean <id1,id2> [--dry-run] [--execute --yes] [--unsafe] [--force] [--strategy=trash|delete] [--exclude=/path]")
 	fmt.Println("  opencleaner [--socket=...] [--json] undo")
+	fmt.Println("  opencleaner [--socket=...] [--json] schedule status")
+	fmt.Println("  opencleaner [--socket=...] [--json] schedule set --interval=daily|weekly|monthly --time=HH:MM [--day=0-6] [--notify]")
+	fmt.Println("  opencleaner [--socket=...] [--json] schedule disable")
 	fmt.Println("  opencleaner daemon install [--binary-path=/usr/local/bin/opencleanerd] [--socket=...]")
 	fmt.Println("  opencleaner daemon uninstall")
 	fmt.Println("  opencleaner daemon restart")

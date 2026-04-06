@@ -15,6 +15,8 @@ import (
 	"github.com/opencleaner/opencleaner/internal/daemon"
 	"github.com/opencleaner/opencleaner/internal/engine"
 	"github.com/opencleaner/opencleaner/internal/rules"
+	"github.com/opencleaner/opencleaner/internal/scanner"
+	"github.com/opencleaner/opencleaner/internal/scheduler"
 	"github.com/opencleaner/opencleaner/internal/stream"
 	"github.com/opencleaner/opencleaner/internal/transport"
 	"github.com/opencleaner/opencleaner/pkg/logger"
@@ -69,7 +71,28 @@ func main() {
 
 	broker := stream.NewBroker()
 	eng := engine.New(rules.BuiltinRules(home), broker, auditLogger)
+
+	// Register Phase 2 dynamic scanners.
+	scanRoots := scanner.DefaultScanRoots(home)
+	eng.AddScanner(scanner.NewNodeScanner(home, scanRoots))
+	eng.AddScanner(scanner.NewPythonScanner(home, scanRoots))
+	eng.AddScanner(scanner.NewRustScanner(home, scanRoots))
+	eng.AddScanner(scanner.NewXcodeScanner(home))
+	eng.AddScanner(scanner.NewDockerScanner())
+	eng.AddScanner(scanner.NewHomebrewScanner(home))
+
 	srv := transport.NewServer(eng, broker, *socketPath, version)
+
+	// Initialize scheduler.
+	sched := scheduler.New(eng, broker, log)
+	srv.SetScheduler(sched)
+	if cfg, err := scheduler.LoadConfig(home); err == nil && cfg.Enabled {
+		if err := sched.Start(*cfg); err != nil {
+			log.Warn("scheduler: failed to restore config", "err", err)
+		} else {
+			log.Info("scheduler: restored from config", "interval", cfg.Interval, "time", cfg.TimeOfDay)
+		}
+	}
 
 	ln, err := transport.ListenUnixSocket(*socketPath)
 	if err != nil {

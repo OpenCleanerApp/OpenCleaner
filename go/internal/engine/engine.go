@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/opencleaner/opencleaner/internal/analyzer"
 	"github.com/opencleaner/opencleaner/internal/audit"
 	"github.com/opencleaner/opencleaner/internal/cleaner"
 	"github.com/opencleaner/opencleaner/internal/rules"
@@ -62,6 +63,7 @@ func (e *Engine) Scan(ctx context.Context) (types.ScanResult, error) {
 
 	allRules := make([]rules.Rule, 0, len(staticRules))
 	seenIDs := map[string]struct{}{}
+	var scanWarnings []string
 	for _, r := range staticRules {
 		if err := validateRule(r); err != nil {
 			return types.ScanResult{}, fmt.Errorf("invalid static rule %q: %w", r.ID, err)
@@ -76,14 +78,19 @@ func (e *Engine) Scan(ctx context.Context) (types.ScanResult, error) {
 	for _, sc := range scanners {
 		rs, err := sc.Scan(ctx)
 		if err != nil {
-			return types.ScanResult{}, fmt.Errorf("scanner %s failed: %w", sc.ID(), err)
+			if ctx.Err() != nil {
+				return types.ScanResult{}, ctx.Err()
+			}
+			scanWarnings = append(scanWarnings, fmt.Sprintf("scanner %s: %s", sc.ID(), err.Error()))
+			continue
 		}
 		for _, r := range rs {
 			if r.Category == "" {
 				r.Category = sc.Category()
 			}
 			if err := validateRule(r); err != nil {
-				return types.ScanResult{}, fmt.Errorf("scanner %s returned invalid rule %q: %w", sc.ID(), r.ID, err)
+				scanWarnings = append(scanWarnings, fmt.Sprintf("scanner %s returned invalid rule %q: %s", sc.ID(), r.ID, err.Error()))
+				continue
 			}
 			if _, ok := seenIDs[r.ID]; ok {
 				continue
@@ -101,7 +108,7 @@ func (e *Engine) Scan(ctx context.Context) (types.ScanResult, error) {
 		}
 	}
 	if len(existing) == 0 {
-		res := types.ScanResult{TotalSize: 0, Items: []types.ScanItem{}, ScanDurationMs: time.Since(start).Milliseconds(), CategorizedSize: map[types.Category]int64{}}
+		res := types.ScanResult{TotalSize: 0, Items: []types.ScanItem{}, ScanDurationMs: time.Since(start).Milliseconds(), CategorizedSize: map[types.Category]int64{}, Warnings: scanWarnings}
 		e.broker.Publish(types.ProgressEvent{Type: "complete", Progress: 1, Message: "scan complete"})
 		return res, nil
 	}
@@ -110,8 +117,9 @@ func (e *Engine) Scan(ctx context.Context) (types.ScanResult, error) {
 		r rules.Rule
 	}
 	type scanOut struct {
-		r    rules.Rule
-		size int64
+		r          rules.Rule
+		size       int64
+		lastAccess *time.Time
 	}
 
 	jobs := make(chan scanJob)
@@ -134,8 +142,18 @@ func (e *Engine) Scan(ctx context.Context) (types.ScanResult, error) {
 		go func() {
 			defer wg.Done()
 			for j := range jobs {
-				sz, _ := getPathSize(ctx, j.r.Path)
-				results <- scanOut{r: j.r, size: sz}
+				var sz int64
+				if j.r.PresetSize != nil {
+					sz = *j.r.PresetSize
+				} else {
+					sz, _ = getPathSize(ctx, j.r.Path)
+				}
+				var la *time.Time
+				if info, err := os.Stat(j.r.Path); err == nil {
+					mt := info.ModTime()
+					la = &mt
+				}
+				results <- scanOut{r: j.r, size: sz, lastAccess: la}
 			}
 		}()
 	}
@@ -174,6 +192,7 @@ func (e *Engine) Scan(ctx context.Context) (types.ScanResult, error) {
 			SafetyLevel: out.r.Safety,
 			SafetyNote:  out.r.SafetyNote,
 			Description: out.r.Desc,
+			LastAccess:  out.lastAccess,
 		}
 		items = append(items, it)
 		categorized[out.r.Category] += out.size
@@ -193,6 +212,8 @@ func (e *Engine) Scan(ctx context.Context) (types.ScanResult, error) {
 		Items:           items,
 		ScanDurationMs:  time.Since(start).Milliseconds(),
 		CategorizedSize: categorized,
+		Warnings:        scanWarnings,
+		Suggestions:     analyzer.New().Analyze(items),
 	}
 
 	e.mu.Lock()
