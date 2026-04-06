@@ -104,18 +104,16 @@ jobs:
           cp go/opencleaner build/export/OpenCleaner.app/Contents/MacOS/
           cp go/opencleanerd build/export/OpenCleaner.app/Contents/MacOS/
 
-          # Re-sign embedded binaries
+          # Sign embedded Go binaries individually
           IDENTITY="Developer ID Application"
           KEYCHAIN="$RUNNER_TEMP/app-signing.keychain-db"
           OPTS="--force --options runtime --timestamp --keychain $KEYCHAIN"
 
           codesign $OPTS --sign "$IDENTITY" "build/export/OpenCleaner.app/Contents/MacOS/opencleaner"
           codesign $OPTS --sign "$IDENTITY" "build/export/OpenCleaner.app/Contents/MacOS/opencleanerd"
-          codesign $OPTS --sign "$IDENTITY" --preserve-metadata=entitlements "build/export/OpenCleaner.app"
-          codesign --verify --deep --strict "build/export/OpenCleaner.app"
 
-      # ── Re-sign Sparkle binaries ──
-      - name: Re-sign Sparkle binaries
+      # ── Re-sign Sparkle binaries + final app signing ──
+      - name: Re-sign Sparkle and finalize
         run: |
           APP="build/export/OpenCleaner.app"
           SPARKLE="$APP/Contents/Frameworks/Sparkle.framework"
@@ -130,9 +128,11 @@ jobs:
             codesign $OPTS --sign "$IDENTITY" "$SPARKLE/Versions/B/Autoupdate"
             codesign $OPTS --sign "$IDENTITY" "$SPARKLE/Versions/B/Updater.app"
             codesign $OPTS --sign "$IDENTITY" "$SPARKLE"
-            codesign $OPTS --sign "$IDENTITY" --preserve-metadata=entitlements "$APP"
-            codesign --verify --deep --strict "$APP"
           fi
+
+          # Final app signing after all nested code is signed
+          codesign $OPTS --sign "$IDENTITY" --preserve-metadata=entitlements "$APP"
+          codesign --verify --deep --strict "$APP"
 
       # ── Notarize ──
       - name: Notarize
