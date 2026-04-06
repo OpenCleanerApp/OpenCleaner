@@ -168,7 +168,18 @@ States:
 - Optional tertiary:
   - “Show Audit Log” after completion
 
-### 5.4 Empty / First-run States
+### 5.4 Completion Banner (`CompletionBannerView`)
+- Appears after a successful clean at the top of the results view.
+- Shows: count of items cleaned + total size reclaimed.
+- Provides an **Undo** button (invokes ⌘Z action).
+- Dismisses automatically after a timeout or when the user starts a new scan.
+
+### 5.5 Scan Interruption Banner
+- Shown when a scan is cancelled mid-progress.
+- Displays partial results found so far.
+- Provides a **Restart Scan** button to start a fresh scan.
+
+### 5.6 Empty / First-run States
 - Calm, instructional, minimal illustration (SF Symbol ok).
 - Never use “marketing hero” layouts.
 

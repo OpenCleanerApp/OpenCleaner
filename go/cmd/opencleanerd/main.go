@@ -4,8 +4,7 @@ import (
 	"context"
 	"errors"
 	"flag"
-	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -13,39 +12,92 @@ import (
 	"time"
 
 	"github.com/opencleaner/opencleaner/internal/audit"
+	"github.com/opencleaner/opencleaner/internal/daemon"
 	"github.com/opencleaner/opencleaner/internal/engine"
 	"github.com/opencleaner/opencleaner/internal/rules"
+	"github.com/opencleaner/opencleaner/internal/scanner"
+	"github.com/opencleaner/opencleaner/internal/scheduler"
 	"github.com/opencleaner/opencleaner/internal/stream"
 	"github.com/opencleaner/opencleaner/internal/transport"
+	"github.com/opencleaner/opencleaner/pkg/logger"
 )
 
 var version = "dev"
 
 func main() {
 	socketPath := flag.String("socket", transport.DefaultSocketPath(), "unix socket path")
+	install := flag.Bool("install", false, "install launchd plist and exit")
+	logLevel := flag.String("log-level", "info", "log level: debug|info|warn|error")
+	logJSON := flag.Bool("log-json", false, "emit logs as JSON")
 	flag.Parse()
+
+	level := parseLogLevel(*logLevel)
+	var log *slog.Logger
+	if *logJSON {
+		log = logger.NewJSON(level)
+	} else {
+		log = logger.New(level)
+	}
+
+	if *install {
+		exe, err := os.Executable()
+		if err != nil {
+			log.Error("failed to resolve executable", "err", err)
+			os.Exit(1)
+		}
+		if err := daemon.InstallPlistWithSocket(exe, *socketPath); err != nil {
+			log.Error("launchd install failed", "err", err)
+			os.Exit(1)
+		}
+		log.Info("launchd plist installed", "plist", daemon.PlistPath())
+		return
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	home, err := os.UserHomeDir()
 	if err != nil {
-		log.Fatal(err)
+		log.Error("failed to resolve home dir", "err", err)
+		os.Exit(1)
 	}
 
 	auditPath, err := audit.DefaultAuditLogPath()
 	if err != nil {
-		log.Fatal(err)
+		log.Error("failed to resolve audit log path", "err", err)
+		os.Exit(1)
 	}
 	auditLogger := audit.NewLogger(auditPath)
 
 	broker := stream.NewBroker()
 	eng := engine.New(rules.BuiltinRules(home), broker, auditLogger)
+
+	// Register Phase 2 dynamic scanners.
+	scanRoots := scanner.DefaultScanRoots(home)
+	eng.AddScanner(scanner.NewNodeScanner(home, scanRoots))
+	eng.AddScanner(scanner.NewPythonScanner(home, scanRoots))
+	eng.AddScanner(scanner.NewRustScanner(home, scanRoots))
+	eng.AddScanner(scanner.NewXcodeScanner(home))
+	eng.AddScanner(scanner.NewDockerScanner(home))
+	eng.AddScanner(scanner.NewHomebrewScanner(home))
+
 	srv := transport.NewServer(eng, broker, *socketPath, version)
+
+	// Initialize scheduler.
+	sched := scheduler.New(eng, broker, log)
+	srv.SetScheduler(sched)
+	if cfg, err := scheduler.LoadConfig(home); err == nil && cfg.Enabled {
+		if err := sched.Start(*cfg); err != nil {
+			log.Warn("scheduler: failed to restore config", "err", err)
+		} else {
+			log.Info("scheduler: restored from config", "interval", cfg.Interval, "time", cfg.TimeOfDay)
+		}
+	}
 
 	ln, err := transport.ListenUnixSocket(*socketPath)
 	if err != nil {
-		log.Fatal(err)
+		log.Error("failed to listen", "socket", *socketPath, "err", err)
+		os.Exit(1)
 	}
 	defer ln.Close()
 	defer os.Remove(*socketPath)
@@ -61,13 +113,28 @@ func main() {
 
 	go func() {
 		<-ctx.Done()
+		sched.Stop()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = httpSrv.Shutdown(shutdownCtx)
 	}()
 
-	fmt.Printf("opencleanerd listening on unix socket %s\n", *socketPath)
+	log.Info("opencleanerd starting", "version", version, "socket", *socketPath)
 	if err := httpSrv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		log.Fatal(err)
+		log.Error("http serve failed", "err", err)
+		os.Exit(1)
+	}
+}
+
+func parseLogLevel(s string) slog.Level {
+	switch s {
+	case "debug":
+		return slog.LevelDebug
+	case "warn", "warning":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
 	}
 }

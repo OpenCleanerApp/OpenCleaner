@@ -3,7 +3,9 @@
 ## Current behavior (MVP) + recommended evolution
 - `POST /api/v1/scan` runs a scan synchronously and returns `ScanResult` (JSON).
 - `POST /api/v1/clean` runs cleaning synchronously and returns `CleanResult` (JSON).
-- `GET /api/v1/progress/stream` (SSE) streams `ProgressEvent` updates for the currently running scan/clean
+- `POST /api/v1/undo` restores the last trash-based clean and returns `UndoResult` (JSON).
+  - Returns **404** if no undo manifest exists (nothing to undo).
+- `GET /api/v1/progress/stream` (SSE) streams `ProgressEvent` updates for the currently running scan/clean/undo
   (and replays the last event to new subscribers, if available).
 - Future (not implemented yet): job IDs + per-job progress streams so reconnect does not restart work.
 
@@ -45,4 +47,5 @@
 
 ## Debugging / observability
 - Go SSE debug logs: set `OPENCLEANER_DEBUG=1` or `OPENCLEANER_DEBUG_SSE=1` to log subscribe/unsubscribe and write/ping errors.
+- Daemon structured logging: `opencleanerd -log-level=debug|info|warn|error -log-json` (logs to stderr by default).
 - Swift SSE lifecycle logs: OSLog `subsystem: OpenCleanerClient`, `category: sse` (view in Console.app or `log stream`).

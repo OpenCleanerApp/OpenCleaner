@@ -1,6 +1,7 @@
 package cleaner
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -31,8 +32,19 @@ func MoveToTrash(absPath string, dryRun bool) (string, error) {
 	base := filepath.Base(absPath)
 	dst := filepath.Join(trash, base)
 	if _, err := os.Lstat(dst); err == nil {
-		suffix := time.Now().UTC().Format("20060102T150405Z")
-		dst = filepath.Join(trash, fmt.Sprintf("%s.%s", base, suffix))
+		nonce := time.Now().UTC().UnixNano()
+		for i := 0; i < 1000; i++ {
+			cand := filepath.Join(trash, fmt.Sprintf("%s.%d.%d", base, nonce, i))
+			if _, err := os.Lstat(cand); errors.Is(err, os.ErrNotExist) {
+				dst = cand
+				break
+			} else if err != nil {
+				return "", err
+			}
+		}
+		if dst == filepath.Join(trash, base) {
+			return "", errors.New("failed to find unique trash path")
+		}
 	}
 	if dryRun {
 		return dst, nil

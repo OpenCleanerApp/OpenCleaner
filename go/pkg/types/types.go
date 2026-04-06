@@ -35,6 +35,16 @@ type ScanResult struct {
 	Items           []ScanItem         `json:"items"`
 	ScanDurationMs  int64              `json:"scan_duration_ms"`
 	CategorizedSize map[Category]int64 `json:"categorized_size"`
+	Suggestions     []Suggestion       `json:"suggestions,omitempty"`
+	Warnings        []string           `json:"warnings,omitempty"`
+}
+
+type Suggestion struct {
+	ItemID      string      `json:"item_id"`
+	Message     string      `json:"message"`
+	Priority    float64     `json:"priority"`
+	Rationale   string      `json:"rationale"`
+	SafetyLevel SafetyLevel `json:"safety_level"`
 }
 
 type CleanStrategy string
@@ -59,6 +69,12 @@ type CleanResult struct {
 	FailedItems  []string `json:"failed_items"`
 	AuditLogPath string   `json:"audit_log_path"`
 	DryRun       bool     `json:"dry_run,omitempty"`
+}
+
+type UndoResult struct {
+	RestoredCount int      `json:"restored_count"`
+	RestoredSize  int64    `json:"restored_size"`
+	FailedItems   []string `json:"failed_items"`
 }
 
 type DaemonStatus struct {
