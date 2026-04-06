@@ -42,6 +42,7 @@ targets:
         GENERATE_INFOPLIST_FILE: true
         CODE_SIGN_ENTITLEMENTS: OpenCleaner/OpenCleaner.entitlements
         INFOPLIST_KEY_SUFeedURL: "https://opencleanerapp.github.io/OpenCleaner/appcast.xml"
+        INFOPLIST_KEY_SUPublicEDKey: "k+n1mXiTIIqt/Fytb92Pr1AQP1Ap4ByEdwLHLYOUJWA="
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SWIFT_EMIT_LOC_STRINGS: true
         MARKETING_VERSION: "0.1.0"
