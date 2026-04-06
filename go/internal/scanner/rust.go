@@ -28,7 +28,7 @@ func (s *RustScanner) Scan(ctx context.Context) ([]rules.Rule, error) {
 	var found []rules.Rule
 
 	// Discover target/ directories that have a Cargo.toml sibling.
-	_ = Walk(ctx, WalkConfig{
+	if err := Walk(ctx, WalkConfig{
 		RootDirs:   s.scanRoots,
 		TargetName: "target",
 		MaxDepth:   8,
@@ -51,7 +51,9 @@ func (s *RustScanner) Scan(ctx context.Context) ([]rules.Rule, error) {
 			})
 			mu.Unlock()
 		},
-	})
+	}); err != nil {
+		return found, err
+	}
 
 	// Known paths — reuse cargo-registry ID for dedup with builtins.
 	knownPaths := []struct {

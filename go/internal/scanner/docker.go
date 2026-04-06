@@ -12,10 +12,12 @@ import (
 	"github.com/opencleaner/opencleaner/pkg/types"
 )
 
-type DockerScanner struct{}
+type DockerScanner struct {
+	home string
+}
 
-func NewDockerScanner() *DockerScanner {
-	return &DockerScanner{}
+func NewDockerScanner(home string) *DockerScanner {
+	return &DockerScanner{home: home}
 }
 
 func (s *DockerScanner) ID() string               { return "docker" }
@@ -32,8 +34,7 @@ type dockerDFRow struct {
 
 func (s *DockerScanner) Scan(ctx context.Context) ([]rules.Rule, error) {
 	// Check Docker Desktop data dir for macOS.
-	home, _ := os.UserHomeDir()
-	dataDir := filepath.Join(home, "Library", "Containers", "com.docker.docker", "Data")
+	dataDir := filepath.Join(s.home, "Library", "Containers", "com.docker.docker", "Data")
 	if _, err := os.Lstat(dataDir); err != nil {
 		return nil, nil // Docker Desktop not installed
 	}
@@ -128,9 +129,7 @@ func parseDockerSize(s string) int64 {
 	for _, m := range multipliers {
 		if strings.HasSuffix(s, m.suffix) {
 			numStr := strings.TrimSpace(strings.TrimSuffix(s, m.suffix))
-			var val float64
-			if _, err := parseFloat(numStr); err == nil {
-				val, _ = parseFloat(numStr)
+			if val, err := parseFloat(numStr); err == nil {
 				return int64(val * m.mult)
 			}
 		}

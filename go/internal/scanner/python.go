@@ -28,7 +28,7 @@ func (s *PythonScanner) Scan(ctx context.Context) ([]rules.Rule, error) {
 	var found []rules.Rule
 
 	// Discover __pycache__ directories.
-	_ = Walk(ctx, WalkConfig{
+	if err := Walk(ctx, WalkConfig{
 		RootDirs:   s.scanRoots,
 		TargetName: "__pycache__",
 		MaxDepth:   10,
@@ -47,10 +47,12 @@ func (s *PythonScanner) Scan(ctx context.Context) ([]rules.Rule, error) {
 			})
 			mu.Unlock()
 		},
-	})
+	}); err != nil {
+		return found, err
+	}
 
 	// Discover .venv directories (SkipHidden=false to find dot-prefixed dirs).
-	_ = Walk(ctx, WalkConfig{
+	if err := Walk(ctx, WalkConfig{
 		RootDirs:   s.scanRoots,
 		TargetName: ".venv",
 		MaxDepth:   6,
@@ -72,10 +74,12 @@ func (s *PythonScanner) Scan(ctx context.Context) ([]rules.Rule, error) {
 			})
 			mu.Unlock()
 		},
-	})
+	}); err != nil {
+		return found, err
+	}
 
 	// Discover venv/ directories (only if they contain pyvenv.cfg).
-	_ = Walk(ctx, WalkConfig{
+	if err := Walk(ctx, WalkConfig{
 		RootDirs:   s.scanRoots,
 		TargetName: "venv",
 		MaxDepth:   6,
@@ -97,7 +101,9 @@ func (s *PythonScanner) Scan(ctx context.Context) ([]rules.Rule, error) {
 			})
 			mu.Unlock()
 		},
-	})
+	}); err != nil {
+		return found, err
+	}
 
 	// Known cache path.
 	pipCache := filepath.Join(s.home, "Library", "Caches", "pip")

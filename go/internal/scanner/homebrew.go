@@ -2,6 +2,7 @@ package scanner
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -101,29 +102,5 @@ func formatCount(n int, singular string) string {
 	if n == 1 {
 		return "1 " + singular
 	}
-	return strings.Replace(
-		strings.Replace("N items", "N", itoa(n), 1),
-		"items",
-		singular+"s",
-		1,
-	)
-}
-
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	s := ""
-	neg := n < 0
-	if neg {
-		n = -n
-	}
-	for n > 0 {
-		s = string(rune('0'+n%10)) + s
-		n /= 10
-	}
-	if neg {
-		s = "-" + s
-	}
-	return s
+	return fmt.Sprintf("%d %ss", n, singular)
 }

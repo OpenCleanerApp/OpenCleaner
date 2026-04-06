@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/opencleaner/opencleaner/internal/rules"
@@ -88,7 +89,7 @@ func pathHash(p string) string {
 }
 
 func shortPath(home, p string) string {
-	if rel, err := filepath.Rel(home, p); err == nil {
+	if rel, err := filepath.Rel(home, p); err == nil && !strings.HasPrefix(rel, "..") {
 		return "~/" + rel
 	}
 	return p

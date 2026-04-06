@@ -26,22 +26,3 @@ func TestFormatCount(t *testing.T) {
 		}
 	}
 }
-
-func TestItoa(t *testing.T) {
-	tests := []struct {
-		n    int
-		want string
-	}{
-		{0, "0"},
-		{1, "1"},
-		{42, "42"},
-		{100, "100"},
-		{-5, "-5"},
-	}
-	for _, tt := range tests {
-		got := itoa(tt.n)
-		if got != tt.want {
-			t.Errorf("itoa(%d) = %q, want %q", tt.n, got, tt.want)
-		}
-	}
-}

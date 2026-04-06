@@ -62,7 +62,7 @@ func TestParseFloat(t *testing.T) {
 }
 
 func TestDockerScannerID(t *testing.T) {
-	s := NewDockerScanner()
+	s := NewDockerScanner("/home")
 	if s.ID() != "docker" {
 		t.Errorf("expected 'docker', got %q", s.ID())
 	}

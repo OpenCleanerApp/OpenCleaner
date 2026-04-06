@@ -78,7 +78,7 @@ func main() {
 	eng.AddScanner(scanner.NewPythonScanner(home, scanRoots))
 	eng.AddScanner(scanner.NewRustScanner(home, scanRoots))
 	eng.AddScanner(scanner.NewXcodeScanner(home))
-	eng.AddScanner(scanner.NewDockerScanner())
+	eng.AddScanner(scanner.NewDockerScanner(home))
 	eng.AddScanner(scanner.NewHomebrewScanner(home))
 
 	srv := transport.NewServer(eng, broker, *socketPath, version)
@@ -113,6 +113,7 @@ func main() {
 
 	go func() {
 		<-ctx.Done()
+		sched.Stop()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = httpSrv.Shutdown(shutdownCtx)

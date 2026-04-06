@@ -196,8 +196,11 @@ func (s *Server) handleScheduler(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, s.scheduler.Status())
 
 	case http.MethodPut:
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+		dec := json.NewDecoder(r.Body)
+		dec.DisallowUnknownFields()
 		var cfg scheduler.Schedule
-		if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+		if err := dec.Decode(&cfg); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}

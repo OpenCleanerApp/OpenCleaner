@@ -105,10 +105,10 @@ func (s *Scheduler) UpdateConfig(cfg Schedule) error {
 	if cfg.Enabled {
 		return s.Start(cfg)
 	}
-	s.Stop()
 	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.stop()
 	s.config = &cfg
-	s.mu.Unlock()
 	return nil
 }
 

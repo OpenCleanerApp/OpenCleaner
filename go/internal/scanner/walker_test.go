@@ -2,6 +2,7 @@ package scanner
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -155,7 +156,7 @@ func TestWalkNoRecursionIntoMatch(t *testing.T) {
 func TestWalkCancelledContext(t *testing.T) {
 	tmp := t.TempDir()
 	for i := 0; i < 300; i++ {
-		if err := os.MkdirAll(filepath.Join(tmp, "d"+filepath.Base(os.TempDir()), itoa(i)), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Join(tmp, "d"+filepath.Base(os.TempDir()), fmt.Sprintf("%d", i)), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
