@@ -100,17 +100,17 @@ jobs:
           mkdir -p build/export
           cp -R app/build/OpenCleaner.xcarchive/Products/Applications/OpenCleaner.app build/export/
 
-          # Embed Go binaries inside .app bundle
-          cp go/opencleaner build/export/OpenCleaner.app/Contents/MacOS/
-          cp go/opencleanerd build/export/OpenCleaner.app/Contents/MacOS/
-
-          # Sign embedded Go binaries individually
+          # Sign Go binaries BEFORE embedding (outside bundle context)
           IDENTITY="Developer ID Application"
           KEYCHAIN="$RUNNER_TEMP/app-signing.keychain-db"
           OPTS="--force --options runtime --timestamp --keychain $KEYCHAIN"
 
-          codesign $OPTS --sign "$IDENTITY" "build/export/OpenCleaner.app/Contents/MacOS/opencleaner"
-          codesign $OPTS --sign "$IDENTITY" "build/export/OpenCleaner.app/Contents/MacOS/opencleanerd"
+          codesign $OPTS --sign "$IDENTITY" go/opencleaner
+          codesign $OPTS --sign "$IDENTITY" go/opencleanerd
+
+          # Copy signed binaries into .app bundle
+          cp go/opencleaner build/export/OpenCleaner.app/Contents/MacOS/
+          cp go/opencleanerd build/export/OpenCleaner.app/Contents/MacOS/
 
       # ── Re-sign Sparkle binaries + final app signing ──
       - name: Re-sign Sparkle and finalize
