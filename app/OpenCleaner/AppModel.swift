@@ -271,16 +271,16 @@ final class AppModel: ObservableObject {
         progressEvent = nil
 
         let client = makeClient()
-        progressTask = Task.detached { [weak self] in
+        progressTask = Task { [weak self] in
             var sawStart = false
             do {
                 for try await evt in client.progressStream(reconnect: .default) {
                     if evt.type == expectedStartType { sawStart = true }
-                    await MainActor.run { self?.progressEvent = evt }
+                    self?.progressEvent = evt
                     if sawStart && evt.type == "complete" { break }
                 }
             } catch {
-                await MainActor.run { self?.lastError = String(describing: error) }
+                self?.lastError = String(describing: error)
             }
         }
     }
